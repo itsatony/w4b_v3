@@ -6,16 +6,16 @@ from typing import List, Dict, Optional, Union
 import yaml
 from datetime import datetime
 
-from .schemas import validate_yaml_config
-from .exceptions import HiveConfigError
-from ..utils.id_generator import generate_hive_id, is_valid_hive_id
-from ..utils.file_operations import safe_write_yaml, safe_read_yaml
-
 from .validator import ConfigValidator
 from .exceptions import (
-    HiveConfigError, ConfigNotFoundError, DuplicateHiveError,
-    ValidationError, LockError, FileSystemError
+    HiveConfigError,
+    ConfigNotFoundError,
+    ValidationError,
+    DuplicateHiveError,
+    FileSystemError
 )
+from ..utils.id_generator import generate_hive_id
+from ..utils.file_operations import safe_write_yaml, safe_read_yaml
 
 class HiveManager:
     """
@@ -43,7 +43,6 @@ class HiveManager:
                       Defaults to {repo-root}/hives/
         """
         if base_path is None:
-            # Try to find repository root (contains 'hives' directory)
             current = Path.cwd()
             while current.parent != current:
                 if (current / 'hives').exists():
@@ -82,7 +81,7 @@ class HiveManager:
         """
         config_path = self.base_path / f"{hive_id}.yaml"
         if not config_path.exists():
-            raise HiveConfigError(f"Hive {hive_id} not found")
+            raise ConfigNotFoundError(hive_id)
             
         try:
             return safe_read_yaml(config_path)
@@ -102,39 +101,22 @@ class HiveManager:
         Raises:
             HiveConfigError: If validation fails or file can't be written
         """
+        # Validate configuration
+        errors = self.validator.validate(config)
+        if errors:
+            raise ValidationError(errors)
+        
+        hive_id = config.get('hive_id', generate_hive_id())
+        config_path = self.base_path / f"{hive_id}.yaml"
+        
+        if config_path.exists():
+            raise DuplicateHiveError(hive_id)
+        
         try:
-            # Validate configuration
-            errors = self.validator.validate(config)
-            if errors:
-                raise ValidationError(errors)
-            
-            hive_id = config.get('hive_id')
-            if hive_id:
-                if not is_valid_hive_id(hive_id):
-                    raise ValidationError(["Invalid hive ID format"])
-            else:
-                hive_id = generate_hive_id()
-                config['hive_id'] = hive_id
-            config_path = self.base_path / f"{hive_id}.yaml"
-            
-            if config_path.exists():
-                raise DuplicateHiveError(hive_id)
-            
-            # Acquire lock before writing
-            lock_path = config_path.with_suffix('.lock')
-            if lock_path.exists():
-                raise LockError(hive_id)
-            
-            try:
-                lock_path.touch()
-                safe_write_yaml(config_path, config)
-                return hive_id
-            finally:
-                if lock_path.exists():
-                    lock_path.unlink()
-                    
-        except OSError as e:
-            raise FileSystemError(f"Failed to create hive: {str(e)}")
+            safe_write_yaml(config_path, config)
+            return hive_id
+        except Exception as e:
+            raise HiveConfigError(f"Error creating hive: {str(e)}")
 
     def update_hive(self, hive_id: str, config: Dict) -> None:
         """
@@ -156,20 +138,13 @@ class HiveManager:
         if errors:
             raise ValidationError(errors)
         
-        # Create backup and update with proper locking
-        lock_path = config_path.with_suffix('.lock')
-        if lock_path.exists():
-            raise LockError(hive_id)
-        
         try:
-            lock_path.touch()
+            # Create backup
             self._backup_config(hive_id)
+            # Update configuration
             safe_write_yaml(config_path, config)
-        except OSError as e:
-            raise FileSystemError(f"Failed to update hive: {str(e)}")
-        finally:
-            if lock_path.exists():
-                lock_path.unlink()
+        except Exception as e:
+            raise HiveConfigError(f"Error updating hive: {str(e)}")
 
     def delete_hive(self, hive_id: str) -> None:
         """
@@ -183,7 +158,7 @@ class HiveManager:
         """
         config_path = self.base_path / f"{hive_id}.yaml"
         if not config_path.exists():
-            raise HiveConfigError(f"Hive {hive_id} not found")
+            raise ConfigNotFoundError(hive_id)
         
         try:
             # Create backup before deletion
@@ -205,10 +180,8 @@ class HiveManager:
         try:
             config = self.get_hive(hive_id)
             return self.validator.validate(config)
-        except HiveConfigError as e:
-            return [str(e)]
         except Exception as e:
-            return [f"Unexpected error: {str(e)}"]
+            return [str(e)]
 
     def _backup_config(self, hive_id: str) -> None:
         """Create a backup of a hive configuration"""
