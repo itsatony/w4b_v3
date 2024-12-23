@@ -10,6 +10,7 @@ from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea, Label
+import yaml
 
 from ..core.manager import HiveManager
 from ..core.exceptions import HiveConfigError

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+pythonpath = "."
+testpaths = ["hive_config_manager/tests"]
+python_files = "test_*.py"
+python_classes = "Test"
+python_functions = "test_*"
+addopts = "-v --cov=hive_config_manager --cov-report=html"
+
+[tool.black]
+line-length = 88
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+line_length = 88

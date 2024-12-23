@@ -1,3 +1,13 @@
 {
-  "workbench.colorTheme": "Github (rainglow)"
+  "workbench.colorTheme": "Github (rainglow)",
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.nosetestsEnabled": false,
+  "python.testing.pytestArgs": [
+      "tests"
+  ],
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+      "${workspaceFolder}"
+  ]
 }
