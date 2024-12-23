@@ -1,0 +1,119 @@
+# config.yaml - Sensor Configuration Example
+version: 1.0.0
+hive_id: ${HIVE_ID}
+timezone: ${TIMEZONE}
+
+collectors:
+  base_path: /opt/hive/collectors
+  interval: 60  # Global collection interval in seconds
+  timeout: 30   # Global timeout for collections
+
+storage:
+  type: timescaledb
+  host: localhost
+  port: 5432
+  database: hivedb
+  user: hive
+  password: ${DB_PASSWORD}
+  retention_days: 30
+  batch_size: 1000
+
+sensors:
+  - id: temp_01
+    name: "Temperature Sensor 1"
+    type: dht22
+    enabled: true
+    interface:
+      type: gpio
+      pin: 4
+    collection:
+      interval: 300  # Override global interval
+      retries: 3
+    calibration:
+      offset: -0.5
+      scale: 1.0
+    metrics:
+      - name: temperature
+        unit: celsius
+        precision: 1
+      - name: humidity
+        unit: percent
+        precision: 1
+
+  - id: scale_01
+    name: "Weight Scale 1"
+    type: hx711
+    enabled: true
+    interface:
+      type: gpio
+      data_pin: 5
+      clock_pin: 6
+    collection:
+      interval: 600
+      samples: 10  # Average over 10 samples
+    calibration:
+      tare: 8423122
+      scale_factor: 411.23
+    metrics:
+      - name: weight
+        unit: grams
+        precision: 2
+
+# Example of sensor-type specific settings
+sensor_types:
+  dht22:
+    module: sensors.temperature
+    class: DHT22Sensor
+    timeout: 5
+  
+  hx711:
+    module: sensors.weight
+    class: HX711Sensor
+    timeout: 10
+
+logging:
+  version: 1
+  formatters:
+    standard:
+      format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: standard
+      level: INFO
+    file:
+      class: logging.handlers.RotatingFileHandler
+      formatter: standard
+      level: DEBUG
+      filename: /var/log/hive/sensors.log
+      maxBytes: 10485760
+      backupCount: 5
+    prometheus:
+      class: prometheus_client.CollectorRegistry
+  loggers:
+    sensors:
+      level: INFO
+      handlers: [console, file, prometheus]
+      propagate: false
+
+metrics:
+  prometheus:
+    enabled: true
+    port: 9100
+    path: /metrics
+    labels:
+      hive_id: ${HIVE_ID}
+      location: ${LOCATION}
+  
+  exporters:
+    node:
+      enabled: true
+      collectors:
+        - cpu
+        - diskstats
+        - filesystem
+        - loadavg
+        - meminfo
+        - netdev
+        - systemd
+        - temperature

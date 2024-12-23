@@ -1,0 +1,82 @@
+# Keycloak Realm Configuration for Hive System
+# Version: 1.0.0
+
+realm: hive-system
+
+roles:
+  - name: system-admin
+    description: Full system access including SSH and database
+    attributes:
+      ssh-access: "true"
+      db-access: "true"
+      system-management: "true"
+  
+  - name: hive-admin
+    description: Administration of specific hives
+    attributes:
+      data-access: "true"
+      config-management: "true"
+  
+  - name: user
+    description: Basic data access and visualization
+    attributes:
+      data-access: "true"
+  
+  - name: guest
+    description: Read-only access to public data
+    attributes:
+      data-access-readonly: "true"
+
+groups:
+  - name: system-admins
+    roles:
+      - system-admin
+  
+  - name: hive-managers
+    roles:
+      - hive-admin
+
+clients:
+  - clientId: hive-web
+    name: Hive Web Interface
+    root: https://we4bee.network
+    redirectUris:
+      - https://we4bee.network/*
+    webOrigins:
+      - https://we4bee.network
+    attributes:
+      pkce.enabled: "true"
+
+  - clientId: hive-api
+    name: Hive API Service
+    clientAuthenticatorType: client-jwt
+    serviceAccountsEnabled: true
+    attributes:
+      jwt.credential.certificate: ${API_PUBLIC_KEY}
+
+user-attributes:
+  - name: hiveAccess
+    type: string[]
+    description: List of hive IDs user has access to
+  
+  - name: timezone
+    type: string
+    description: User's timezone for data display
+
+authentication:
+  - alias: default
+    authenticatorConfig:
+      - alias: create-user-if-unique
+        config:
+          allow-regular-users: "false"
+    requirement: ALTERNATIVE
+    authenticator: registration-user-creation
+
+policy:
+  - name: Max Login Failures
+    type: max-login-failures
+    config:
+      maxLoginFailures: "3"
+      waitIncrements: "60"
+      maxWait: "900"
+      failureReset: "900"

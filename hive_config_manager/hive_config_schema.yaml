@@ -1,0 +1,116 @@
+# Example hive configuration schema
+# Version: 1.0.0
+
+hive_id: hive_<nanoid>  # Automatically generated
+version: "1.0.0"        # Config version for future compatibility
+
+metadata:
+  name: "Test Hive 1"
+  location:
+    address: "123 Bee Street, Honeytown"
+    latitude: 48.123456
+    longitude: 11.123456
+    timezone: "Europe/Berlin"
+  notes: |
+    Multi-line notes about this hive
+    Can contain markdown formatting
+  
+network:
+  primary: "wifi"  # or "lan"
+  wifi:
+    - ssid: "Network1"
+      password: "pass1"
+      priority: 1
+    - ssid: "Network2"
+      password: "pass2"
+      priority: 2
+  lan:
+    dhcp: true
+    # Optional static configuration
+    static:
+      ip: "192.168.1.100"
+      gateway: "192.168.1.1"
+      dns: ["1.1.1.1", "8.8.8.8"]
+
+wireguard:
+  client_ip: "10.10.0.X"  # Will be assigned during setup
+  persistent_keepalive: 25
+  # Additional WireGuard specific settings will be generated
+
+administrators:
+  - name: "John Doe"
+    email: "john@example.com"
+    username: "john_doe"
+    phone: "+1234567890"
+    role: "hive_admin"
+  - name: "Jane Smith"
+    email: "jane@example.com"
+    username: "jane_smith"
+    phone: "+1234567891"
+    role: "hive_viewer"
+
+collector:
+  interval: 60  # Global collection interval in seconds
+  batch_size: 100
+  retry_attempts: 3
+  retry_delay: 5
+  buffer_size: 1000
+  logging:
+    level: "INFO"
+    max_size: "100M"
+    retention: 7  # days
+
+sensors:
+  - id: "temp_01"
+    type: "dht22"
+    name: "Temperature Sensor 1"
+    enabled: true
+    location: "Top Box"
+    interface:
+      type: "gpio"
+      pin: 4
+    collection:
+      interval: 300  # Override global interval
+      retries: 3
+    calibration:
+      offset: -0.5
+      scale: 1.0
+    alerts:
+      - metric: "temperature"
+        min: 10
+        max: 40
+        threshold_duration: 300  # seconds
+
+  - id: "scale_01"
+    type: "hx711"
+    name: "Weight Scale 1"
+    enabled: true
+    location: "Bottom"
+    interface:
+      type: "gpio"
+      data_pin: 5
+      clock_pin: 6
+    collection:
+      interval: 600
+      samples: 10
+    calibration:
+      tare: 8423122
+      scale_factor: 411.23
+    alerts:
+      - metric: "weight"
+        min: 0
+        max: 100000
+        rate_of_change_max: 1000  # grams per hour
+
+maintenance:
+  backup:
+    enabled: true
+    interval: 86400  # 24 hours
+    retention: 7  # days
+  updates:
+    auto_update: true
+    update_hour: 3  # 3 AM in configured timezone
+    allowed_days: ["Sunday"]
+  monitoring:
+    metrics_retention: 30  # days
+    enable_detailed_logging: true
