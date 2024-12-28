@@ -16,12 +16,20 @@ console = Console()
 
 class HiveCtl:
     def __init__(self):
-        self.compose_file = Path("../compose.yaml")
-        self.config_dir = Path("../config")
-        self.data_dir = Path("../data")
+        # Get the directory where the script is located
+        self.script_dir = Path(__file__).resolve().parent
+        # Define paths relative to the deployment directory (one level up)
+        self.deployment_dir = self.script_dir.parent
+        self.compose_file = self.deployment_dir / "compose.yaml"
+        self.config_dir = self.deployment_dir / "config"
+        self.data_dir = self.deployment_dir / "data"
+        self.scripts_dir = self.deployment_dir / "scripts"
 
     def run_command(self, cmd, capture_output=True):
         """Run a shell command and handle errors"""
+        # Ensure we're in the deployment directory for relative paths
+        original_dir = os.getcwd()
+        os.chdir(self.deployment_dir)
         try:
             result = subprocess.run(
                 cmd, 
@@ -36,6 +44,8 @@ class HiveCtl:
         except Exception as e:
             console.print(f"[red]Error executing command:[/red] {str(e)}")
             return False
+        finally:
+            os.chdir(original_dir)
 
     def get_service_status(self, service=None):
         """Get status of one or all services"""
@@ -100,25 +110,78 @@ def status(service):
 def start(services, force):
     """Start services"""
     hive = HiveCtl()
-    cmd = "podman-compose"
     
-    if force:
-        cmd += " up --force-recreate"
-    else:
-        cmd += " up -d"
+    # Use absolute path for compose file
+    compose_path = hive.compose_file
     
-    if services:
-        cmd += f" {' '.join(services)}"
-        
+    # Clean up existing containers only if they exist
+    containers = hive.run_command("podman container ls -aq")
+    if containers and containers.stdout.strip():
+        with Progress() as progress:
+            task = progress.add_task("[yellow]Stopping existing services...", total=100)
+            hive.run_command("podman stop $(podman container ls -aq)", capture_output=False)
+            progress.update(task, completed=100)
+    
+    # Clean up containers and networks
     with Progress() as progress:
-        task = progress.add_task("[green]Starting services...", total=100)
-        success = hive.run_command(cmd, capture_output=False)
+        task = progress.add_task("[yellow]Cleaning up...", total=100)
+        hive.run_command("podman container rm -f $(podman container ls -aq 2>/dev/null) 2>/dev/null || true", capture_output=False)
+        hive.run_command("podman pod rm -f pod_deployment 2>/dev/null || true", capture_output=False)
         progress.update(task, completed=100)
     
-    if success:
-        console.print("[green]Services started successfully[/green]")
-    else:
-        console.print("[red]Failed to start services[/red]")
+    # Create networks if they don't exist
+    networks = ["frontend", "application", "database", "monitoring", "vpn"]
+    with Progress() as progress:
+        task = progress.add_task("[cyan]Setting up networks...", total=len(networks))
+        for network in networks:
+            exists = hive.run_command(f"podman network inspect {network} 2>/dev/null")
+            if not exists:
+                hive.run_command(f"podman network create {network}", capture_output=False)
+            progress.advance(task)
+    
+    # Start services
+    cmd = f"podman-compose -f {compose_path} up -d"
+    if services:
+        cmd += f" {' '.join(services)}"
+    
+    with Progress() as progress:
+        task = progress.add_task("[green]Starting services...", total=100)
+        process = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                # Update progress based on service startup
+                if "Starting" in output:
+                    progress.update(task, advance=5)
+                elif "Created" in output:
+                    progress.update(task, advance=5)
+                elif "Started" in output:
+                    progress.update(task, advance=5)
+        
+        return_code = process.wait()
+        stderr = process.stderr.read()
+        
+        if return_code == 0:
+            progress.update(task, completed=100)
+            console.print("[green]Services started successfully[/green]")
+            time.sleep(2)  # Give services time to initialize
+            # Show current status
+            status(None)
+        else:
+            console.print("[red]Failed to start services[/red]")
+            if stderr:
+                console.print(f"[red]Error details:[/red]\n{stderr}")
 
 @cli.command()
 @click.argument('services', nargs=-1)
@@ -176,10 +239,7 @@ def logs(service, lines, follow):
 def health():
     """Run health checks"""
     hive = HiveCtl()
-    script = Path("../scripts/health-check.sh")
-    
-    if not script.exists():
-        script = Path(__file__).parent.parent / "scripts" / "health-check.sh"
+    script = hive.scripts_dir / "health-check.sh"
     
     if not script.exists():
         console.print("[red]Health check script not found[/red]")
@@ -188,7 +248,7 @@ def health():
     # Make sure script is executable
     os.chmod(script, 0o755)
     
-    # Run health check directly using subprocess for proper output handling
+    # Run health check with absolute path
     try:
         subprocess.run([str(script)], check=True)
     except subprocess.CalledProcessError as e:
