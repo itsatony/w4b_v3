@@ -1,0 +1,360 @@
+# /server/deployment/compose.yaml
+
+version: '3.8'
+
+networks:
+  frontend:
+    driver: bridge
+    internal: false
+  application:
+    driver: bridge
+    internal: true
+  database:
+    driver: bridge
+    internal: true
+  monitoring:
+    driver: bridge
+    internal: true
+  vpn:
+    driver: bridge
+    internal: false
+
+volumes:
+  timescaledb_data:
+  postgres_app_data:
+  postgres_keycloak_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  vector_data:
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.12.2-pg16
+    container_name: hive_timescaledb
+    networks:
+      - database
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./config/timescaledb:/etc/postgresql
+    environment:
+      POSTGRES_DB: hive_metrics
+      POSTGRES_USER_FILE: /run/secrets/timescaledb_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/timescaledb_password
+    secrets:
+      - timescaledb_user
+      - timescaledb_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/timescaledb_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 4G
+        cpus: 2.0
+
+  postgres_app:
+    image: postgres:16.1
+    container_name: hive_postgres_app
+    networks:
+      - database
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_app_data:/var/lib/postgresql/data
+      - ./config/postgres_app:/etc/postgresql
+    environment:
+      POSTGRES_DB: hive_app
+      POSTGRES_USER_FILE: /run/secrets/postgres_app_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
+    secrets:
+      - postgres_app_user
+      - postgres_app_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_app_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 2G
+        cpus: 1.0
+
+  postgres_keycloak:
+    image: postgres:16.1
+    container_name: hive_postgres_keycloak
+    networks:
+      - database
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_keycloak_data:/var/lib/postgresql/data
+      - ./config/postgres_keycloak:/etc/postgresql
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER_FILE: /run/secrets/postgres_keycloak_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_keycloak_password
+    secrets:
+      - postgres_keycloak_user
+      - postgres_keycloak_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_keycloak_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 2G
+        cpus: 1.0
+
+  redis:
+    image: redis:7.2.3
+    container_name: hive_redis
+    networks:
+      - application
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 1G
+        cpus: 0.5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.3
+    container_name: hive_keycloak
+    networks:
+      - frontend
+      - application
+      - database
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./config/keycloak:/opt/keycloak/conf
+      - ./themes/keycloak:/opt/keycloak/themes/custom
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres_keycloak
+      KC_DB_URL_PORT: 5432
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME_FILE: /run/secrets/keycloak_db_user
+      KC_DB_PASSWORD_FILE: /run/secrets/keycloak_db_password
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      PROXY_ADDRESS_FORWARDING: "true"
+      KC_METRICS_ENABLED: "true"
+    secrets:
+      - keycloak_db_user
+      - keycloak_db_password
+      - keycloak_admin_user
+      - keycloak_admin_password
+    depends_on:
+      postgres_keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 2G
+        cpus: 1.0
+
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: hive_prometheus
+    networks:
+      - monitoring
+      - vpn
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 4G
+        cpus: 1.0
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: hive_alertmanager
+    networks:
+      - monitoring
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./config/alertmanager:/etc/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 1G
+        cpus: 0.5
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: hive_grafana
+    networks:
+      - frontend
+      - monitoring
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER_FILE: /run/secrets/grafana_admin_user
+      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Keycloak"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET_FILE: /run/secrets/grafana_oauth_secret
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://keycloak:8443/realms/hive/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://keycloak:8443/realms/hive/protocol/openid-connect/token"
+    secrets:
+      - grafana_admin_user
+      - grafana_admin_password
+      - grafana_oauth_secret
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 1G
+        cpus: 0.5
+
+  node_exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: hive_node_exporter
+    networks:
+      - monitoring
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 256M
+        cpus: 0.2
+
+  vector:
+    image: timberio/vector:0.34.0-alpine
+    container_name: hive_vector
+    networks:
+      - monitoring
+    ports:
+      - "8686:8686"
+    volumes:
+      - vector_data:/vector
+      - ./config/vector/vector.yaml:/etc/vector/vector.yaml
+      - /var/log:/var/log:ro
+    command: ["--config", "/etc/vector/vector.yaml"]
+    healthcheck:
+      test: ["CMD", "vector", "validate", "--config", "/etc/vector/vector.yaml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 512M
+        cpus: 0.5
+
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: hive_loki
+    networks:
+      - monitoring
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+      - ./config/loki:/etc/loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    resources:
+      limits:
+        memory: 1G
+        cpus: 0.5
+
+secrets:
+  timescaledb_user:
+    file: ./secrets/timescaledb_user.txt
+  timescaledb_password:
+    file: ./secrets/timescaledb_password.txt
+  postgres_app_user:
+    file: ./secrets/postgres_app_user.txt
+  postgres_app_password:
+    file: ./secrets/postgres_app_password.txt
+  postgres_keycloak_user:
+    file: ./secrets/postgres_keycloak_user.txt
+  postgres_keycloak_password:
+    file: ./secrets/postgres_keycloak_password.txt
+  keycloak_admin_user:
+    file: ./secrets/keycloak_admin_user.txt
+  keycloak_admin_password:
+    file: ./secrets/keycloak_admin_password.txt
+  keycloak_db_user:
+    file: ./secrets/keycloak_db_user.txt
+  keycloak_db_password:
+    file: ./secrets/keycloak_db_password.txt
+  grafana_admin_user:
+    file: ./secrets/grafana_admin_user.txt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
+  grafana_oauth_secret:
+    file: ./secrets/grafana_oauth_secret.txt

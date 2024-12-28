@@ -108,6 +108,165 @@ sequenceDiagram
     C->>U: Return Visualizations
 ```
 
+## Server Architecture
+
+```mermaid
+graph TB
+    subgraph "External Services"
+        SMTP[Google Workspace SMTP]
+        GDRIVE[Google Drive Backup]
+    end
+
+    subgraph "Reverse Proxy Layer"
+        NGINX[NGINX]
+    end
+
+    subgraph "Application Layer"
+        API[Go API Service]
+        KEYCLOAK[Keycloak]
+    end
+
+    subgraph "Data Layer"
+        TSDB[(TimescaleDB)]
+        PGAPP[(PostgreSQL App DB)]
+        PGKEY[(PostgreSQL Keycloak)]
+        REDIS[(Redis)]
+    end
+
+    subgraph "Monitoring"
+        PROM[Prometheus]
+        GRAF[Grafana]
+        ALERT[Alert Manager]
+        NODE[Node Exporter]
+        BLACK[Blackbox Exporter]
+    end
+
+    subgraph "Edge Devices"
+        WG[WireGuard VPN]
+        SPOKE1[Spoke 1]
+        SPOKE2[Spoke 2]
+        SPOKE3[Spoke 3]
+    end
+
+    NGINX --> API
+    NGINX --> KEYCLOAK
+    NGINX --> GRAF
+
+    API --> TSDB
+    API --> PGAPP
+    API --> REDIS
+    API --> WG
+    API --> PROM
+
+    KEYCLOAK --> PGKEY
+
+    PROM --> NODE
+    PROM --> BLACK
+    PROM --> ALERT
+    GRAF --> PROM
+
+    WG --> SPOKE1
+    WG --> SPOKE2
+    WG --> SPOKE3
+
+    SPOKE1 -.-> PROM
+    SPOKE2 -.-> PROM
+    SPOKE3 -.-> PROM
+
+    classDef external fill:#f9f,stroke:#333,stroke-width:4px
+    classDef proxy fill:#ff9,stroke:#333,stroke-width:2px
+    classDef app fill:#9f9,stroke:#333,stroke-width:2px
+    classDef data fill:#99f,stroke:#333,stroke-width:2px
+    classDef monitoring fill:#f99,stroke:#333,stroke-width:2px
+    
+    class SMTP,GDRIVE external
+    class NGINX proxy
+    class API,KEYCLOAK app
+    class TSDB,PGAPP,PGKEY,REDIS data
+    class PROM,GRAF,ALERT,NODE,BLACK monitoring
+```
+
+## Network Architecture
+
+```mermaid
+graph TB
+    subgraph "Public Network"
+        INET[Internet]
+        NGINX[NGINX :443]
+    end
+
+    subgraph "Frontend Network"
+        KEYWEB[Keycloak Web :8443]
+        GRAFWEB[Grafana Web :3000]
+        APIWEB[API Gateway :8080]
+    end
+
+    subgraph "Application Network"
+        API[Go API Service]
+        KEY[Keycloak Service]
+    end
+
+    subgraph "Database Network"
+        TSDB[(TimescaleDB :5432)]
+        PGAPP[(PostgreSQL :5432)]
+        PGKEY[(Keycloak DB :5432)]
+        REDIS[(Redis :6379)]
+    end
+
+    subgraph "Monitoring Network"
+        PROM[Prometheus :9090]
+        ALERT[Alert Manager :9093]
+        NODE[Node Exporter :9100]
+        BLACK[Blackbox :9115]
+    end
+
+    subgraph "VPN Network 10.10.0.0/24"
+        WG[WireGuard :51820]
+        SPOKE1[Spoke 1]
+        SPOKE2[Spoke 2]
+    end
+
+    INET --> NGINX
+    NGINX --> KEYWEB
+    NGINX --> GRAFWEB
+    NGINX --> APIWEB
+
+    APIWEB --> API
+    KEYWEB --> KEY
+
+    API --> TSDB
+    API --> PGAPP
+    API --> REDIS
+    API --> WG
+    API --> PROM
+
+    KEY --> PGKEY
+
+    PROM --> NODE
+    PROM --> BLACK
+    PROM --> ALERT
+
+    WG --> SPOKE1
+    WG --> SPOKE2
+
+    SPOKE1 -.-> PROM
+    SPOKE2 -.-> PROM
+
+    classDef public fill:#f96,stroke:#333,stroke-width:4px
+    classDef frontend fill:#9f9,stroke:#333,stroke-width:2px
+    classDef app fill:#99f,stroke:#333,stroke-width:2px
+    classDef data fill:#f9f,stroke:#333,stroke-width:2px
+    classDef monitoring fill:#ff9,stroke:#333,stroke-width:2px
+    classDef vpn fill:#69f,stroke:#333,stroke-width:2px
+
+    class INET,NGINX public
+    class KEYWEB,GRAFWEB,APIWEB frontend
+    class API,KEY app
+    class TSDB,PGAPP,PGKEY,REDIS data
+    class PROM,ALERT,NODE,BLACK monitoring
+    class WG,SPOKE1,SPOKE2 vpn
+```
+
 ## Key Components
 
 ### Central Server (Hub)
