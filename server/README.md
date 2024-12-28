@@ -77,7 +77,7 @@ graph TB
 1. Clone the repository:
    ```bash
    git clone https://github.com/itsatony/w4b_v3.git
-   cd server/deployment
+   cd server/w4b_containers
    ```
 
 2. Create required directories:

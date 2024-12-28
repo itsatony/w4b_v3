@@ -1,0 +1,7 @@
+version: "3.9"
+
+services:
+  db:
+    build: .  # Use the Dockerfile in the current directory
+    ports:
+      - "5432:5432"

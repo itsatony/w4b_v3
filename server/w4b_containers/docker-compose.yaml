@@ -1,0 +1,371 @@
+# /server/w4b_containers/docker-compose.yaml
+
+version: '3.9'
+
+networks:
+  w4b_frontend:
+    driver: bridge
+    internal: false
+  w4b_application:
+    driver: bridge
+    internal: true
+  w4b_database:
+    driver: bridge
+    internal: false
+  w4b_monitoring:
+    driver: bridge
+    internal: true
+  w4b_vpn:
+    driver: bridge
+    internal: false
+
+volumes:
+  w4b_timescaledb_data:
+  w4b_postgres_app_data:
+  w4b_postgres_keycloak_data:
+  w4b_redis_data:
+  w4b_prometheus_data:
+  w4b_grafana_data:
+  w4b_loki_data:
+  w4b_vector_data:
+
+services:
+  w4b_timescaledb:
+    image: docker.io/timescale/timescaledb:latest-pg16
+    container_name: w4b_timescaledb
+    networks:
+      - w4b_database
+    ports:
+      - "30432:5432"  # Changed from 5432
+    volumes:
+      - w4b_timescaledb_data:/var/lib/postgresql/data
+      - ./config/timescaledb:/etc/postgresql
+    environment:
+      POSTGRES_DB: w4b_metrics
+      POSTGRES_USER_FILE: /run/secrets/timescaledb_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/timescaledb_password
+    secrets:
+      - timescaledb_user
+      - timescaledb_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/timescaledb_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+
+  w4b_postgres_app:
+    image: docker.io/library/postgres:17.2
+    container_name: w4b_postgres_app
+    networks:
+      - w4b_database
+    ports:
+      - "30433:5432"  # Changed from 5433
+    volumes:
+      - w4b_postgres_app_data:/var/lib/postgresql/data
+      - ./config/postgres_app:/etc/postgresql
+    environment:
+      POSTGRES_DB: w4b_app
+      POSTGRES_USER_FILE: /run/secrets/postgres_app_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
+    secrets:
+      - postgres_app_user
+      - postgres_app_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_app_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+
+  w4b_postgres_keycloak:
+    image: docker.io/library/postgres:17.2
+    container_name: w4b_postgres_keycloak
+    networks:
+      - w4b_database
+    ports:
+      - "0.0.0.0:33434:5432"
+    volumes:
+      - ./data/postgres_keycloak:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak_db
+      POSTGRES_PASSWORD: PPWW4forPostgresKeycloakIsNoice
+      PGDATA: /var/lib/postgresql/data
+    shm_size: '1g'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak_db -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G 
+
+  w4b_redis:
+    image: docker.io/library/redis:7.2.3
+    container_name: w4b_redis
+    networks:
+      - w4b_application
+    ports:
+      - "30379:6379"  # Changed from 6380
+    volumes:
+      - w4b_redis_data:/data
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+
+  w4b_keycloak:
+    image: docker.io/keycloak/keycloak:23.0.3
+    container_name: w4b_keycloak
+    networks:
+      - w4b_database
+    ports:
+      - "30080:8080"  # Changed from 8443
+    volumes:
+      - ./config/keycloak:/opt/keycloak/conf
+      - ./themes/keycloak:/opt/keycloak/themes/custom
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://w4b_postgres_keycloak:5432/keycloak
+      KC_DB_USERNAME: keycloak_db
+      KC_DB_PASSWORD: PPWW4forPostgresKeycloakIsNoice
+      KC_DB_SCHEMA: public
+      KC_HOSTNAME: auth.we4bee.network
+      KC_PROXY: edge
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_CACHE: local
+      KC_LOG_LEVEL: INFO,org.keycloak.services.scheduled:DEBUG,org.keycloak.transaction:DEBUG,org.hibernate:DEBUG
+      QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"  # Fix transaction warning
+    secrets:
+      - keycloak_db_user
+      - keycloak_db_password
+      - keycloak_admin_user
+      - keycloak_admin_password
+    depends_on:
+      w4b_postgres_keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Fix: Add startup grace period
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+    command: 
+      - "start-dev"
+      - "--import-realm"
+      - "--http-enabled=true"
+      - "--hostname-strict=false"
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+
+  w4b_prometheus:
+    image: docker.io/prom/prometheus:v2.48.1
+    container_name: w4b_prometheus
+    networks:
+      - w4b_monitoring
+      - w4b_vpn
+    ports:
+      - "127.0.0.1:30090:9090"  # Changed from dynamic 9090
+    volumes:
+      - w4b_prometheus_data:/prometheus
+      - ./config/prometheus:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+
+  w4b_alertmanager:
+    image: docker.io/prom/alertmanager:v0.26.0
+    container_name: w4b_alertmanager
+    networks:
+      - w4b_monitoring
+    ports:
+      - "30093:9093"  # Changed from 9093
+    volumes:
+      - ./config/alertmanager:/etc/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+
+  w4b_grafana:
+    image: docker.io/grafana/grafana:10.2.3
+    container_name: w4b_grafana
+    networks:
+      - w4b_frontend
+      - w4b_monitoring
+    ports:
+      - "127.0.0.1:30000:3000"  # Changed from 3000
+    volumes:
+      - w4b_grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER_FILE: /run/secrets/grafana_admin_user
+      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Keycloak"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET_FILE: /run/secrets/grafana_oauth_secret
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://keycloak:8443/realms/hive/protocol/openid-connect/auth"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://keycloak:8443/realms/hive/protocol/openid-connect/token"
+    secrets:
+      - grafana_admin_user
+      - grafana_admin_password
+      - grafana_oauth_secret
+    depends_on:
+      w4b_loki:
+        condition: service_started
+      w4b_prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  w4b_node_exporter:
+    image: docker.io/prom/node-exporter:v1.7.0
+    container_name: w4b_node_exporter
+    networks:
+      - w4b_monitoring
+    ports:
+      - "30100:9100"  # Changed from 9100
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+
+  w4b_vector:
+    image: docker.io/timberio/vector:0.34.0-alpine
+    container_name: w4b_vector
+    networks:
+      - w4b_monitoring
+    ports:
+      - "127.0.0.1:30686:8686"  # Changed from dynamic 8686
+    volumes:
+      - w4b_vector_data:/vector
+      - ./config/vector/vector.yaml:/etc/vector/vector.yaml
+      - /var/log:/var/log:ro
+    command: ["--config-yaml", "/etc/vector/vector.yaml"]  # Fix: Change --config to --config-yaml
+    depends_on:
+      w4b_loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "vector", "validate", "--config", "/etc/vector/vector.yaml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    user: "1000:1000"  # Added for Docker compatibility
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    entrypoint: >
+      sh -c "vector validate --config /etc/vector/vector.yaml && exec vector --config /etc/vector/vector.yaml"
+
+  w4b_loki:
+    image: docker.io/grafana/loki:2.9.3
+    container_name: w4b_loki
+    networks:
+      - w4b_monitoring
+    ports:
+      - "127.0.0.1:30100:3100"  # Changed from 3100
+    volumes:
+      - w4b_loki_data:/loki
+      - ./config/loki:/etc/loki
+      - ./data/loki:/data
+      - ./data/loki/wal:/wal  # Fix: Add persistent volume for WAL
+    command: -config.file=/etc/loki/loki-config.yaml
+    depends_on: []
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    user: "1000:1000"  # Fix: Set proper user permissions
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    entrypoint: >
+      sh -c "mkdir -p /loki/chunks && chmod -R 777 /loki && exec /usr/bin/loki -config.file=/etc/loki/loki-config.yaml"
+
+secrets:
+  timescaledb_user:
+    file: ./secrets/timescaledb_user.txt
+  timescaledb_password:
+    file: ./secrets/timescaledb_password.txt
+  postgres_app_user:
+    file: ./secrets/postgres_app_user.txt
+  postgres_app_password:
+    file: ./secrets/postgres_app_password.txt
+  postgres_keycloak_user:
+    file: ./secrets/postgres_keycloak_user.txt
+  postgres_keycloak_password:
+    file: ./secrets/postgres_keycloak_password.txt
+  keycloak_admin_user:
+    file: ./secrets/keycloak_admin_user.txt
+  keycloak_admin_password:
+    file: ./secrets/keycloak_admin_password.txt
+  keycloak_db_user:
+    file: ./secrets/postgres_keycloak_user.txt
+  keycloak_db_password:
+    file: ./secrets/postgres_keycloak_password.txt
+  grafana_admin_user:
+    file: ./secrets/grafana_admin_user.txt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
+  grafana_oauth_secret:
+    file: ./secrets/grafana_oauth_secret.txt
+  # Ensure these files exist under ./secrets
+  # timescaledb_user.txt, timescaledb_password.txt, etc.
