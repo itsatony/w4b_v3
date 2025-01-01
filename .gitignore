@@ -136,6 +136,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Environment files
+*/.env
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -171,3 +174,8 @@ cython_debug/
 .pypirc
 
 vault/
+
+# Secrets
+server/w4b_containers/secrets/
+
+server/we4b_containers/.env

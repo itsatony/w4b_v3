@@ -6,47 +6,80 @@ networks:
   w4b_frontend:
     driver: bridge
     internal: false
+    ipam:
+      config:
+        - subnet: 10.90.0.0/24
+          gateway: 10.90.0.1
+
   w4b_application:
     driver: bridge
-    internal: true
+    internal: true  # No external access
+    ipam:
+      config:
+        - subnet: 10.90.1.0/24
+          gateway: 10.90.1.1
+
   w4b_database:
     driver: bridge
-    internal: false
+    internal: true  # No external access
+    ipam:
+      config:
+        - subnet: 10.90.2.0/24
+          gateway: 10.90.2.1
+
   w4b_monitoring:
     driver: bridge
-    internal: true
+    internal: true  # No external access
+    ipam:
+      config:
+        - subnet: 10.90.3.0/24
+          gateway: 10.90.3.1
+
   w4b_vpn:
     driver: bridge
-    internal: false
+    internal: false  # Needs external access
+    ipam:
+      config:
+        - subnet: 10.90.4.0/24
+          gateway: 10.90.4.1
 
 volumes:
-  w4b_timescaledb_data:
-  w4b_postgres_app_data:
-  w4b_postgres_keycloak_data:
-  w4b_redis_data:
-  w4b_prometheus_data:
-  w4b_grafana_data:
-  w4b_loki_data:
-  w4b_vector_data:
+  w4b_config_grafana: {}
+  w4b_config_prometheus: {}
+  w4b_config_keycloak: {}
+  w4b_config_redis: {}
+  w4b_config_vector: {}
+  w4b_config_loki: {}
+  w4b_config_alertmanager: {}
+  w4b_config_timescaledb: {}
+  w4b_config_postgres_app: {}
+  w4b_config_postgres_keycloak: {}
+  w4b_data_timescaledb: {}
+  w4b_data_postgres_app: {}
+  w4b_data_postgres_keycloak: {}
+  w4b_data_redis: {}
+  w4b_data_prometheus: {}
+  w4b_data_grafana: {}
+  w4b_data_loki: {}
+  w4b_data_vector: {}
 
 services:
   w4b_timescaledb:
     image: docker.io/timescale/timescaledb:latest-pg16
     container_name: w4b_timescaledb
     networks:
-      - w4b_database
+      w4b_database:
+        aliases:
+          - timescaledb
     ports:
-      - "30432:5432"  # Changed from 5432
+      - "127.0.0.1:30432:5432"  # Local access only
     volumes:
-      - w4b_timescaledb_data:/var/lib/postgresql/data
-      - ./config/timescaledb:/etc/postgresql
+      - w4b_data_timescaledb:/var/lib/postgresql/data
+      - w4b_config_timescaledb:/etc/postgresql
     environment:
       POSTGRES_DB: w4b_metrics
-      POSTGRES_USER_FILE: /run/secrets/timescaledb_user
-      POSTGRES_PASSWORD_FILE: /run/secrets/timescaledb_password
-    secrets:
-      - timescaledb_user
-      - timescaledb_password
+      POSTGRES_USER: ${W4B__TIMESCALEDB_USER}
+      POSTGRES_PASSWORD: ${W4B__TIMESCALEDB_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/timescaledb_user)"]
       interval: 10s
@@ -59,19 +92,18 @@ services:
     image: docker.io/library/postgres:17.2
     container_name: w4b_postgres_app
     networks:
-      - w4b_database
+      w4b_database:
+        aliases:
+          - postgres_app
     ports:
-      - "30433:5432"  # Changed from 5433
+      - "127.0.0.1:30433:5432"  # Local access only
     volumes:
-      - w4b_postgres_app_data:/var/lib/postgresql/data
-      - ./config/postgres_app:/etc/postgresql
+      - w4b_data_postgres_app:/var/lib/postgresql/data
+      - w4b_config_postgres_app:/etc/postgresql
     environment:
       POSTGRES_DB: w4b_app
-      POSTGRES_USER_FILE: /run/secrets/postgres_app_user
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
-    secrets:
-      - postgres_app_user
-      - postgres_app_password
+      POSTGRES_USER: ${W4B__POSTGRES_APP_USER}
+      POSTGRES_PASSWORD: ${W4B__POSTGRES_APP_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_app_user)"]
       interval: 10s
@@ -84,15 +116,18 @@ services:
     image: docker.io/library/postgres:17.2
     container_name: w4b_postgres_keycloak
     networks:
-      - w4b_database
+      w4b_database:
+        aliases:
+          - postgres_keycloak
     ports:
-      - "0.0.0.0:33434:5432"
+      - "127.0.0.1:30434:5432"  # Changed from 0.0.0.0 to localhost only
     volumes:
-      - ./data/postgres_keycloak:/var/lib/postgresql/data
+      - w4b_data_postgres_keycloak:/var/lib/postgresql/data
+      - w4b_config_postgres_keycloak:/etc/postgresql
     environment:
       POSTGRES_DB: keycloak
-      POSTGRES_USER: keycloak_db
-      POSTGRES_PASSWORD: PPWW4forPostgresKeycloakIsNoice
+      POSTGRES_USER: ${W4B__POSTGRES_KEYCLOAK_USER}
+      POSTGRES_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
       PGDATA: /var/lib/postgresql/data
     shm_size: '1g'
     healthcheck:
@@ -110,12 +145,15 @@ services:
     image: docker.io/library/redis:7.2.3
     container_name: w4b_redis
     networks:
-      - w4b_application
+      w4b_application:
+        aliases:
+          - redis
+      w4b_database:  # Added for cache persistence
     ports:
-      - "30379:6379"  # Changed from 6380
+      - "127.0.0.1:30379:6379"  # Local access only
     volumes:
-      - w4b_redis_data:/data
-      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - w4b_data_redis:/data
+      - w4b_config_redis:/usr/local/etc/redis/redis.conf
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -129,7 +167,15 @@ services:
     image: docker.io/keycloak/keycloak:23.0.3
     container_name: w4b_keycloak
     networks:
-      - w4b_database
+      w4b_frontend:  # For external access
+        aliases:
+          - keycloak
+      w4b_database:  # For DB access
+    hostname: keycloak
+    dns:
+      - 10.90.2.1  # Database network DNS
+    extra_hosts:
+      - "postgres_keycloak:10.90.2.3"  # Match DB container IP
     ports:
       - "30080:8080"  # Changed from 8443
     volumes:
@@ -138,8 +184,10 @@ services:
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://w4b_postgres_keycloak:5432/keycloak
-      KC_DB_USERNAME: keycloak_db
-      KC_DB_PASSWORD: PPWW4forPostgresKeycloakIsNoice
+      KC_DB_USERNAME: ${W4B__POSTGRES_KEYCLOAK_USER}
+      KC_DB_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
+      KEYCLOAK_ADMIN: ${W4B__KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${W4B__KEYCLOAK_ADMIN_PASSWORD}
       KC_DB_SCHEMA: public
       KC_HOSTNAME: auth.we4bee.network
       KC_PROXY: edge
@@ -149,11 +197,6 @@ services:
       KC_CACHE: local
       KC_LOG_LEVEL: INFO,org.keycloak.services.scheduled:DEBUG,org.keycloak.transaction:DEBUG,org.hibernate:DEBUG
       QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"  # Fix transaction warning
-    secrets:
-      - keycloak_db_user
-      - keycloak_db_password
-      - keycloak_admin_user
-      - keycloak_admin_password
     depends_on:
       w4b_postgres_keycloak:
         condition: service_healthy
@@ -180,13 +223,17 @@ services:
     image: docker.io/prom/prometheus:v2.48.1
     container_name: w4b_prometheus
     networks:
-      - w4b_monitoring
-      - w4b_vpn
+      w4b_monitoring:
+        aliases:
+          - prometheus
+      w4b_vpn:  # For edge device metrics
+      w4b_application:  # For API metrics
+    hostname: prometheus
     ports:
       - "127.0.0.1:30090:9090"  # Changed from dynamic 9090
     volumes:
-      - w4b_prometheus_data:/prometheus
-      - ./config/prometheus:/etc/prometheus
+      - w4b_data_prometheus:/prometheus
+      - w4b_config_prometheus:/etc/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -204,7 +251,9 @@ services:
     image: docker.io/prom/alertmanager:v0.26.0
     container_name: w4b_alertmanager
     networks:
-      - w4b_monitoring
+      w4b_monitoring:
+        aliases:
+          - alertmanager
     ports:
       - "30093:9093"  # Changed from 9093
     volumes:
@@ -224,26 +273,27 @@ services:
     image: docker.io/grafana/grafana:10.2.3
     container_name: w4b_grafana
     networks:
-      - w4b_frontend
-      - w4b_monitoring
+      w4b_frontend:  # For UI access
+        aliases:
+          - grafana
+      w4b_monitoring:  # For data source access
+    hostname: grafana
+    dns:
+      - 10.90.3.1  # Monitoring network DNS
     ports:
       - "127.0.0.1:30000:3000"  # Changed from 3000
     volumes:
-      - w4b_grafana_data:/var/lib/grafana
-      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - w4b_data_grafana:/var/lib/grafana
+      - w4b_config_grafana:/etc/grafana/provisioning
     environment:
-      GF_SECURITY_ADMIN_USER_FILE: /run/secrets/grafana_admin_user
-      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_SECURITY_ADMIN_USER: ${W4B__GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${W4B__GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${W4B__GRAFANA_OAUTH_SECRET}
       GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
       GF_AUTH_GENERIC_OAUTH_NAME: "Keycloak"
       GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "grafana"
-      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET_FILE: /run/secrets/grafana_oauth_secret
       GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://keycloak:8443/realms/hive/protocol/openid-connect/auth"
       GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://keycloak:8443/realms/hive/protocol/openid-connect/token"
-    secrets:
-      - grafana_admin_user
-      - grafana_admin_password
-      - grafana_oauth_secret
     depends_on:
       w4b_loki:
         condition: service_started
@@ -266,7 +316,9 @@ services:
     image: docker.io/prom/node-exporter:v1.7.0
     container_name: w4b_node_exporter
     networks:
-      - w4b_monitoring
+      w4b_monitoring:
+        aliases:
+          - node_exporter
     ports:
       - "30100:9100"  # Changed from 9100
     volumes:
@@ -285,12 +337,14 @@ services:
     image: docker.io/timberio/vector:0.34.0-alpine
     container_name: w4b_vector
     networks:
-      - w4b_monitoring
+      w4b_monitoring:
+        aliases:
+          - vector
     ports:
       - "127.0.0.1:30686:8686"  # Changed from dynamic 8686
     volumes:
-      - w4b_vector_data:/vector
-      - ./config/vector/vector.yaml:/etc/vector/vector.yaml
+      - w4b_data_vector:/vector
+      - w4b_config_vector:/etc/vector/vector.yaml
       - /var/log:/var/log:ro
     command: ["--config-yaml", "/etc/vector/vector.yaml"]  # Fix: Change --config to --config-yaml
     depends_on:
@@ -315,12 +369,14 @@ services:
     image: docker.io/grafana/loki:2.9.3
     container_name: w4b_loki
     networks:
-      - w4b_monitoring
+      w4b_monitoring:
+        aliases:
+          - loki
     ports:
       - "127.0.0.1:30100:3100"  # Changed from 3100
     volumes:
-      - w4b_loki_data:/loki
-      - ./config/loki:/etc/loki
+      - w4b_data_loki:/loki
+      - w4b_config_loki:/etc/loki
       - ./data/loki:/data
       - ./data/loki/wal:/wal  # Fix: Add persistent volume for WAL
     command: -config.file=/etc/loki/loki-config.yaml
@@ -339,33 +395,3 @@ services:
         max_attempts: 3
     entrypoint: >
       sh -c "mkdir -p /loki/chunks && chmod -R 777 /loki && exec /usr/bin/loki -config.file=/etc/loki/loki-config.yaml"
-
-secrets:
-  timescaledb_user:
-    file: ./secrets/timescaledb_user.txt
-  timescaledb_password:
-    file: ./secrets/timescaledb_password.txt
-  postgres_app_user:
-    file: ./secrets/postgres_app_user.txt
-  postgres_app_password:
-    file: ./secrets/postgres_app_password.txt
-  postgres_keycloak_user:
-    file: ./secrets/postgres_keycloak_user.txt
-  postgres_keycloak_password:
-    file: ./secrets/postgres_keycloak_password.txt
-  keycloak_admin_user:
-    file: ./secrets/keycloak_admin_user.txt
-  keycloak_admin_password:
-    file: ./secrets/keycloak_admin_password.txt
-  keycloak_db_user:
-    file: ./secrets/postgres_keycloak_user.txt
-  keycloak_db_password:
-    file: ./secrets/postgres_keycloak_password.txt
-  grafana_admin_user:
-    file: ./secrets/grafana_admin_user.txt
-  grafana_admin_password:
-    file: ./secrets/grafana_admin_password.txt
-  grafana_oauth_secret:
-    file: ./secrets/grafana_oauth_secret.txt
-  # Ensure these files exist under ./secrets
-  # timescaledb_user.txt, timescaledb_password.txt, etc.

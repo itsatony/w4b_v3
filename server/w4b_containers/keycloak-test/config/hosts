@@ -1,0 +1,3 @@
+127.0.0.1   localhost
+::1         localhost ip6-localhost ip6-loopback
+10.88.0.1   postgres_keycloak_test

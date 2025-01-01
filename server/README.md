@@ -2,9 +2,21 @@
 
 This directory contains the deployment configuration and management tools for the We4Bee server infrastructure. The system provides a centralized hub for managing beehive monitoring devices, collecting sensor data, and providing visualization and analysis capabilities.
 
-## System Overview
+## podman setup
+
+to get the network plugins to work, follow this [guide](https://www.michaelmcculley.com/updating-cni-plugins-for-podman-a-step-by-step-guide/)
+
+if not already available, install these packages:
+
+```bash
+sudo apt install selinux-utils policycoreutils
+sudo apt install postgresql-client
+```
+
+## Server System Overview
 
 ### Components
+
 - **TimescaleDB**: Time-series data storage for sensor readings
 - **PostgreSQL**: Application data storage (user preferences, configurations)
 - **Keycloak**: Authentication and authorization
@@ -79,34 +91,13 @@ graph TB
    git clone https://github.com/itsatony/w4b_v3.git
    cd server/w4b_containers
    ```
-
-2. Create required directories:
-   ```bash
-   mkdir -p data/timescaledb data/postgres data/redis
-   mkdir -p data/prometheus data/grafana data/loki
-   ```
-
-3. Configure secrets:
-   ```bash
-   # Install Mozilla SOPS
-   sudo dnf install sops  # Fedora/RHEL
-   sudo apt install sops  # Ubuntu/Debian
-
-   # Generate GPG key for secrets encryption
-   gpg --full-generate-key
-
-   # Initialize secrets
-   cd secrets
-   ./init-secrets.sh
-   ```
-
-4. Configure environment:
+2. Configure environment:
    ```bash
    cp .env.example .env
    # Edit .env with your settings
    ```
 
-5. Install management tool:
+3. Install management tool:
    ```bash
    cd hivectl
    ./setup.sh
@@ -116,7 +107,7 @@ graph TB
 
 ### Key Files and Directories
 ```
-deployment/
+project_root/server/w4b_containers/
 ├── compose.yaml          # Main compose file
 ├── config/              # Service configurations
 │   ├── prometheus/
@@ -124,8 +115,7 @@ deployment/
 │   ├── keycloak/
 │   └── ...
 ├── scripts/             # Management scripts
-├── secrets/             # Encrypted secrets
-└── data/               # Persistent data
+├── hivectl/             # Management tool
 ```
 
 ### Network Configuration

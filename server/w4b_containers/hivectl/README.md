@@ -23,7 +23,7 @@ HiveCtl is a command-line tool for managing the We4Bee server infrastructure, pr
 
 1. Clone the repository and navigate to the hivectl directory:
    ```bash
-   cd /server/w4b_containers/hivectl
+   cd server/w4b_containers/hivectl
    ```
 
 2. Run the setup script:
@@ -36,25 +36,6 @@ The setup script will:
 - Create a Python virtual environment
 - Install required dependencies
 - Create a system-wide `hivectl` command
-
-## Manual Setup
-
-If you prefer manual setup:
-
-1. Create virtual environment:
-   ```bash
-   python3 -m venv .venv
-   ```
-
-2. Activate virtual environment:
-   ```bash
-   source .venv/bin/activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
 
 ## Usage
 
@@ -224,34 +205,6 @@ To modify or extend HiveCtl:
 4. Run setup script to update installation:
    ```bash
    ./setup.sh
-   ```
-
-## Common Issues
-
-1. Permission Denied:
-   ```bash
-   sudo chown -R $USER:$USER /server/w4b_containers/hivectl
-   ```
-
-2. Command Not Found:
-   ```bash
-   hash -r  # Reset command hash table
-   ```
-
-3. Virtual Environment Issues:
-   ```bash
-   rm -rf .venv
-   ./setup.sh  # Recreate environment
-   ```
-
-1. Permission Denied on Data Directories:
-   ```bash
-   hivectl init-data  # Initialize data directories with correct permissions
-   ```
-
-2. Docker Socket Permission Issues:
-   ```bash
-   sudo usermod -aG docker $USER  # Add user to docker group
    ```
 
 ## Support

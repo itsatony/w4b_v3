@@ -1,0 +1,47 @@
+version: '3.9'
+
+networks:
+  test_network:
+    external: true
+
+volumes:
+  keycloak_postgres_data: {}
+
+services:
+  postgres_keycloak:
+    image: docker.io/library/postgres:17.2
+    container_name: postgres_keycloak_test
+    hostname: postgres_keycloak_test
+    user: "999:999"
+    networks:
+      - test_network
+    ports:
+      - "127.0.0.1:33434:5432"
+    volumes:
+      - keycloak_postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${W4B__POSTGRES_KEYCLOAK_USER}
+      POSTGRES_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${W4B__POSTGRES_KEYCLOAK_USER} -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db_test:
+    image: docker.io/library/busybox:latest 
+    container_name: db_test
+    hostname: db_test
+    networks:
+      - test_network
+    dns:
+      - 10.89.0.1
+    extra_hosts:
+      - "postgres_keycloak_test:10.89.0.2"
+    depends_on:
+      postgres_keycloak:
+        condition: service_healthy
+    command: sh -c "nc -zv postgres_keycloak_test 5432" 
+    security_opt:
+      - label=disable
