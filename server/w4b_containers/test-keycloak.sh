@@ -28,7 +28,7 @@ check_keycloak() {
 
     echo "Checking status of keycloak_test..."
     while [ $attempt -le $max_attempts ]; do
-        status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health/ready | grep -c "200")
+        status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:30080/health/ready | grep -c "200")
         if [ $status -eq 1 ]; then
             echo "Keycloak is running!"
             return 0

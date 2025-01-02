@@ -10,24 +10,57 @@ import yaml
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.panel import Panel
 from rich.tree import Tree
+from rich import print as rprint
 
+VERSION = "1.1.0"
 console = Console()
+
+# Service group definitions with descriptions
+SERVICE_GROUPS = {
+    'keycloak': {
+        'description': 'Authentication and Authorization services (Keycloak + PostgreSQL)',
+        'containers': ['w4b_keycloak', 'w4b_postgres_keycloak']
+    },
+    'monitoring': {
+        'description': 'System monitoring stack (Prometheus, Grafana, AlertManager, Blackbox)',
+        'containers': ['w4b_prometheus', 'w4b_grafana', 'w4b_alertmanager', 'w4b_blackbox']
+    },
+    'database': {
+        'description': 'Primary data storage services (TimescaleDB, PostgreSQL, Redis)',
+        'containers': ['w4b_timescaledb', 'w4b_postgres_app', 'w4b_redis']
+    },
+    'logging': {
+        'description': 'Log aggregation and management (Vector, Loki)',
+        'containers': ['w4b_vector', 'w4b_loki']
+    },
+    'api': {
+        'description': 'Core API service for W4B platform',
+        'containers': ['w4b_api']
+    },
+    'vpn': {
+        'description': 'VPN service for secure edge device communication (WireGuard)',
+        'containers': ['w4b_wireguard']
+    }
+}
+
+# Reverse mapping for container to service group lookup
+CONTAINER_TO_GROUP = {
+    container: group
+    for group, details in SERVICE_GROUPS.items()
+    for container in details['containers']
+}
 
 class HiveCtl:
     def __init__(self):
-        # Setup paths
         self.script_dir = Path(__file__).resolve().parent
         self.deployment_dir = self.script_dir.parent
-        # Fix: Use correct compose file name
+        self.scripts_dir = self.deployment_dir / "scripts"  # Add scripts directory
         self.compose_file = self.deployment_dir / "compose.yaml"
         self.config_dir = self.deployment_dir / "config"
-        # Add environment setup
         self.env = self.load_env()
-
-        # Load compose configuration
         self.load_compose_config()
 
     def load_env(self):
@@ -38,40 +71,57 @@ class HiveCtl:
             with open(env_path) as f:
                 for line in f:
                     if line.strip() and not line.startswith('#'):
-                        key, value = line.strip().split('=', 1)
-                        env_vars[key.strip()] = value.strip()
+                        try:
+                            key, value = line.strip().split('=', 1)
+                            env_vars[key.strip()] = value.strip()
+                        except ValueError:
+                            console.print(f"[yellow]Warning: Invalid .env line: {line.strip()}[/yellow]")
             return env_vars
         return {}
 
     def load_compose_config(self):
-        """Load and parse the compose file to understand service structure"""
+        """Load and parse the compose file"""
         try:
             with open(self.compose_file) as f:
                 self.compose_config = yaml.safe_load(f)
             self.services = list(self.compose_config.get('services', {}).keys())
             self.networks = list(self.compose_config.get('networks', {}).keys())
-        except Exception as e:
-            console.print(f"[red]Error loading compose configuration: {e}[/red]")
+        except FileNotFoundError:
+            console.print(f"\n[red]Error: Compose file not found at {self.compose_file}[/red]")
+            self.compose_config = {}
+            self.services = []
+            self.networks = []
+        except yaml.YAMLError as e:
+            console.print(f"\n[red]Error parsing compose file: {e}[/red]")
             self.compose_config = {}
             self.services = []
             self.networks = []
 
-    def get_service_details(self, service):
-        """Get detailed configuration for a service"""
-        if not service.startswith('w4b_'):
-            service = f'w4b_{service}'
-        
-        return self.compose_config.get('services', {}).get(service, {})
+    def get_service_containers(self, service):
+        """Get all containers associated with a service"""
+        service = service.lower()
+        # Direct container name match
+        if service.startswith('w4b_'):
+            return [service]
+        # Service group match
+        if service in SERVICE_GROUPS:
+            return SERVICE_GROUPS[service]['containers']
+        # Try to find partial matches
+        for group, details in SERVICE_GROUPS.items():
+            if group.startswith(service):
+                return details['containers']
+        # Default to prefixed service name if no match found
+        return [f'w4b_{service}']
 
-    def run_command(self, cmd, capture_output=True, env=None):
-        """Enhanced command execution with environment support"""
+    def run_command(self, cmd, capture_output=True, env=None, show_output=False):
+        """Enhanced command execution with better output handling"""
         env_dict = os.environ.copy()
         if env:
             env_dict.update(env)
 
         try:
-            with console.status(f"Running command: {cmd}"):
-                result = subprocess.run(
+            with console.status(f"[cyan]Running: {cmd}[/cyan]", spinner="dots") as status:
+                process = subprocess.run(
                     cmd,
                     shell=True,
                     capture_output=capture_output,
@@ -79,13 +129,56 @@ class HiveCtl:
                     env=env_dict,
                     cwd=self.deployment_dir
                 )
-                if result.returncode != 0 and capture_output:
-                    console.print(f"[red]Error:[/red] {result.stderr}")
+
+                if process.returncode != 0:
+                    if process.stderr:
+                        console.print(f"\n[red]Error executing command:[/red]\n{process.stderr.strip()}")
                     return False
-                return result if capture_output else True
+
+                if show_output and process.stdout:
+                    console.print(f"\n{process.stdout.strip()}")
+
+                return process if capture_output else True
+
         except Exception as e:
-            console.print(f"[red]Error executing command:[/red] {str(e)}")
+            console.print(f"\n[red]Error executing command:[/red]\n{str(e)}")
             return False
+
+    def get_service_status(self, service=None):
+        """Get status of services with enhanced error handling"""
+        containers = []
+        if service:
+            target_containers = self.get_service_containers(service)
+            for container in target_containers:
+                result = self.run_command(f"podman ps --format json --filter name={container}")
+                if result and result.stdout.strip():
+                    try:
+                        data = json.loads(result.stdout)
+                        if isinstance(data, list):
+                            containers.extend(data)
+                        else:
+                            containers.append(data)
+                    except json.JSONDecodeError as e:
+                        console.print(f"\n[red]Error parsing container status: {e}[/red]")
+        else:
+            # Get all containers
+            result = self.run_command("podman ps --format json")
+            if result and result.stdout.strip():
+                try:
+                    containers = json.loads(result.stdout)
+                    if not isinstance(containers, list):
+                        containers = [containers]
+                except json.JSONDecodeError as e:
+                    console.print(f"\n[red]Error parsing container status: {e}[/red]")
+
+        return containers
+
+    def get_service_details(self, service):
+        """Get detailed configuration for a service"""
+        if not service.startswith('w4b_'):
+            service = f'w4b_{service}'
+        
+        return self.compose_config.get('services', {}).get(service, {})
 
     def verify_config_dirs(self):
         """Verify all required configuration directories exist"""
@@ -130,23 +223,6 @@ class HiveCtl:
         except Exception as e:
             console.print(f"[red]Error verifying volumes: {e}[/red]")
             return {}
-
-    def get_service_status(self, service=None):
-        """Enhanced service status check with health information"""
-        cmd = "podman ps --format json"
-        if service:
-            service_name = f"w4b_{service}" if not service.startswith('w4b_') else service
-            cmd += f" --filter name={service_name}"
-        
-        result = self.run_command(cmd)
-        if not result:
-            return []
-        
-        try:
-            containers = json.loads(result.stdout)
-            return containers if isinstance(containers, list) else [containers]
-        except json.JSONDecodeError:
-            return []
 
     def display_status(self, containers):
         """Display service status in a table"""
@@ -264,23 +340,96 @@ class HiveCtl:
         
         return self.run_command(cmd, env=env)
 
-@click.group()
-@click.version_option(version='1.0.0')
-def cli():
-    """HiveCtl - Management tool for We4Bee server infrastructure"""
-    pass
+@click.group(invoke_without_command=True)
+@click.version_option(version=VERSION)
+@click.pass_context
+def cli(ctx):
+    """W4B HiveCtl v{} - Management tool for We4Bee server infrastructure""".format(VERSION)
+    
+    if ctx.invoked_subcommand is None:
+        # Create a table for service groups
+        table = Table(title=f"W4B HiveCtl v{VERSION} - Service Groups", show_header=True)
+        table.add_column("Group", style="cyan", no_wrap=True)
+        table.add_column("Description", style="green")
+        table.add_column("Containers", style="yellow")
+
+        # Add service groups to table
+        for group, details in SERVICE_GROUPS.items():
+            table.add_row(
+                group.upper(),
+                details['description'],
+                ", ".join(c.replace('w4b_', '') for c in details['containers'])
+            )
+
+        # Print version, table and available commands
+        console.print("\n[bold cyan]Available Commands:[/bold cyan]")
+        console.print("  status     - Show service status")
+        console.print("  start      - Start services")
+        console.print("  stop       - Stop services")
+        console.print("  restart    - Restart services")
+        console.print("  health     - Show health status")
+        console.print("  logs       - Show service logs")
+        console.print("  update     - Update services")
+        console.print("  networks   - Show network information")
+        console.print("  volumes    - List volumes")
+        console.print("  config     - Show configuration status")
+        console.print("\nService Groups:")
+        console.print(table)
+        console.print("\nUse [cyan]hivectl COMMAND --help[/cyan] for more information about a command.")
 
 @cli.command()
-@click.option('--service', help='Specific service to check')
+@click.option('--service', help='Specific service to check (e.g., keycloak, monitoring, database)')
 def status(service):
-    """Show status of all services or a specific service"""
+    """Show status of all services or a specific service group"""
     hive = HiveCtl()
     containers = hive.get_service_status(service)
     
-    if containers:
-        hive.display_status(containers)
-    else:
-        console.print("[yellow]No services found running[/yellow]")
+    if not containers:
+        if service:
+            console.print(f"\n[yellow]No running containers found for service: {service}[/yellow]")
+        else:
+            console.print("\n[yellow]No running containers found[/yellow]")
+        return
+
+    # Group containers by service
+    grouped_containers = {}
+    for container in containers:
+        name = container['Names'][0].replace('w4b_', '')
+        group = CONTAINER_TO_GROUP.get(container['Names'][0], 'other')
+        if group not in grouped_containers:
+            grouped_containers[group] = []
+        grouped_containers[group].append(container)
+
+    # Display grouped status
+    for group, group_containers in grouped_containers.items():
+        console.print(f"\n[bold cyan]{group.upper()}[/bold cyan]")
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Container")
+        table.add_column("Status")
+        table.add_column("Health")
+        table.add_column("Uptime")
+
+        for container in group_containers:
+            name = container['Names'][0].replace('w4b_', '')
+            status = container['State']
+            health = container.get('Health', {}).get('Status', 'N/A')
+            uptime = container['StartedAt']
+
+            status_color = "green" if status == "running" else "red"
+            health_color = {
+                "healthy": "green",
+                "unhealthy": "red",
+                "N/A": "yellow"
+            }.get(health, "yellow")
+
+            table.add_row(
+                name,
+                f"[{status_color}]{status}[/{status_color}]",
+                f"[{health_color}]{health}[/{health_color}]",
+                uptime
+            )
+
+        console.print(table)
 
 @cli.command()
 @click.argument('services', nargs=-1)
@@ -360,26 +509,85 @@ def logs(service, lines, follow):
 
 @cli.command()
 def health():
-    """Run health checks"""
+    """Show health status of all services"""
     hive = HiveCtl()
-    script = hive.scripts_dir / "health-check.sh"
     
-    if not script.exists():
-        console.print("[red]Health check script not found[/red]")
-        return
+    table = Table(title="System Health Status")
+    table.add_column("Service Group", style="cyan")
+    table.add_column("Container", style="blue")
+    table.add_column("Status", style="green")
+    table.add_column("Health", style="yellow")
+    table.add_column("Response Time", style="magenta")
     
-    # Make sure script is executable
-    os.chmod(script, 0o755)
+    # Suppress the error output for container inspection
+    with console.status("[cyan]Checking system health...[/cyan]", spinner="dots"):
+        for group, details in SERVICE_GROUPS.items():
+            first_row = True
+            for container in details['containers']:
+                # Get container status without showing errors
+                result = subprocess.run(
+                    f"podman inspect {container} --format '{{{{.State.Status}}}}|{{{{.State.Health.Status}}}}|{{{{.State.Health.FailingStreak}}}}'",
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    status, health, failing_streak = result.stdout.strip().split('|')
+                    
+                    # Get response time for web services
+                    response_time = "N/A"
+                    if container in ['w4b_api', 'w4b_keycloak', 'w4b_grafana']:
+                        try:
+                            curl_result = subprocess.run(
+                                f"curl -sI -w '%{{time_total}}' -o /dev/null localhost:{container_ports.get(container, '80')}",
+                                shell=True,
+                                capture_output=True,
+                                text=True
+                            )
+                            if curl_result.returncode == 0:
+                                response_time = f"{float(curl_result.stdout):.2f}s"
+                        except:
+                            pass
+                    
+                    # Status styling
+                    status_style = "[green]✓ running" if status == "running" else "[red]✗ " + status
+                    health_style = {
+                        "healthy": "[green]✓ healthy",
+                        "unhealthy": f"[red]✗ unhealthy ({failing_streak} fails)",
+                        "none": "[yellow]⚠ no health check"
+                    }.get(health, "[yellow]⚠ unknown")
+                else:
+                    status_style = "[red]✗ not found"
+                    health_style = "[red]✗ not running"
+                    response_time = "N/A"
+                
+                table.add_row(
+                    group.title() if first_row else "",
+                    container.replace('w4b_', ''),
+                    status_style,
+                    health_style,
+                    response_time
+                )
+                first_row = False
     
-    # Run health check with absolute path
+    console.print(table)
+    
+    # Check overall system health using the table content
     try:
-        subprocess.run([str(script)], check=True)
-    except subprocess.CalledProcessError as e:
-        if e.returncode == 1:
-            console.print("[yellow]System partially degraded[/yellow]")
+        unhealthy = False
+        for row in table.rows:
+            if "[red]" in str(row.cells[2]):  # Check Status column
+                unhealthy = True
+                break
+        
+        if unhealthy:
+            console.print("\n[red]System is degraded - some services are unhealthy[/red]")
         else:
-            console.print("[red]System unhealthy[/red]")
-        sys.exit(e.returncode)
+            console.print("\n[green]System is healthy - all services are running normally[/green]")
+    except Exception:
+        # Fail silently if we can't determine overall health
+        pass
 
 @cli.command()
 @click.option('--service', help='Update specific service')

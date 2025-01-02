@@ -8,8 +8,8 @@ networks:
     internal: false
     ipam:
       config:
-        - subnet: 10.90.0.0/24
-          gateway: 10.90.0.1
+        - subnet: 10.88.0.0/24
+          gateway: 10.88.0.1
 
   w4b_application:
     driver: bridge
@@ -43,6 +43,14 @@ networks:
         - subnet: 10.90.4.0/24
           gateway: 10.90.4.1
 
+  w4b_backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.88.1.0/24
+          gateway: 10.88.1.1
+
 volumes:
   w4b_config_grafana: {}
   w4b_config_prometheus: {}
@@ -62,6 +70,9 @@ volumes:
   w4b_data_grafana: {}
   w4b_data_loki: {}
   w4b_data_vector: {}
+  w4b_postgres_app: {}
+  w4b_postgres_keycloak: {}
+  w4b_postgres_timescale: {}
 
 services:
   w4b_timescaledb:
@@ -92,49 +103,69 @@ services:
     image: docker.io/library/postgres:17.2
     container_name: w4b_postgres_app
     networks:
-      w4b_database:
+      w4b_backend:
         aliases:
           - postgres_app
+        ipv4_address: 10.88.1.20
     ports:
       - "127.0.0.1:30433:5432"  # Local access only
     volumes:
-      - w4b_data_postgres_app:/var/lib/postgresql/data
-      - w4b_config_postgres_app:/etc/postgresql
+      - w4b_postgres_app:/var/lib/postgresql/data
+      - ./config/postgres_app:/etc/postgresql:ro
     environment:
       POSTGRES_DB: w4b_app
       POSTGRES_USER: ${W4B__POSTGRES_APP_USER}
       POSTGRES_PASSWORD: ${W4B__POSTGRES_APP_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: md5
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/postgres_app_user)"]
-      interval: 10s
+      test: pg_isready -U ${W4B__POSTGRES_APP_USER} -d w4b
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "postgres:postgres"
+    command: >
+      postgres 
+      -c 'max_connections=200'
+      -c 'listen_addresses=*'
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
 
   w4b_postgres_keycloak:
     image: docker.io/library/postgres:17.2
     container_name: w4b_postgres_keycloak
     networks:
-      w4b_database:
+      w4b_backend:
         aliases:
           - postgres_keycloak
+        ipv4_address: 10.88.1.10
     ports:
       - "127.0.0.1:30434:5432"  # Changed from 0.0.0.0 to localhost only
     volumes:
-      - w4b_data_postgres_keycloak:/var/lib/postgresql/data
-      - w4b_config_postgres_keycloak:/etc/postgresql
+      - w4b_postgres_keycloak:/var/lib/postgresql/data
+      - ./config/postgres_keycloak:/etc/postgresql:ro
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: ${W4B__POSTGRES_KEYCLOAK_USER}
       POSTGRES_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: md5
       PGDATA: /var/lib/postgresql/data
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
     shm_size: '1g'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U keycloak_db -d keycloak"]
-      interval: 10s
+      test: pg_isready -U ${W4B__POSTGRES_KEYCLOAK_USER} -d keycloak
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "postgres:postgres"
+    command: >
+      postgres 
+      -c 'max_connections=200'
+      -c 'listen_addresses=*'
     restart: unless-stopped
     deploy:
       resources:
@@ -145,23 +176,26 @@ services:
     image: docker.io/library/redis:7.2.3
     container_name: w4b_redis
     networks:
-      w4b_application:
+      w4b_backend:
         aliases:
           - redis
+        ipv4_address: 10.88.1.40
       w4b_database:  # Added for cache persistence
     ports:
       - "127.0.0.1:30379:6379"  # Local access only
     volumes:
-      - w4b_data_redis:/data
-      - w4b_config_redis:/usr/local/etc/redis/redis.conf
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+      - w4b_redis:/data
+      - ./config/redis:/usr/local/etc/redis:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      test: redis-cli ping
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "redis:redis"
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
 
   w4b_keycloak:
     image: docker.io/keycloak/keycloak:23.0.3
@@ -170,7 +204,9 @@ services:
       w4b_frontend:  # For external access
         aliases:
           - keycloak
-      w4b_database:  # For DB access
+      w4b_backend:  # For DB access
+        aliases:
+          - keycloak_backend
     hostname: keycloak
     dns:
       - 10.90.2.1  # Database network DNS
@@ -179,11 +215,11 @@ services:
     ports:
       - "30080:8080"  # Changed from 8443
     volumes:
-      - ./config/keycloak:/opt/keycloak/conf
+      - ./config/keycloak:/opt/keycloak/conf:ro
       - ./themes/keycloak:/opt/keycloak/themes/custom
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://w4b_postgres_keycloak:30434/keycloak
+      KC_DB_URL: jdbc:postgresql://10.88.1.10:5432/keycloak
       KC_DB_USERNAME: ${W4B__POSTGRES_KEYCLOAK_USER}
       KC_DB_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
       KEYCLOAK_ADMIN: ${W4B__KEYCLOAK_ADMIN_USER}
@@ -197,22 +233,24 @@ services:
       KC_CACHE: local
       KC_LOG_LEVEL: INFO,org.keycloak.services.scheduled:DEBUG,org.keycloak.transaction:DEBUG,org.hibernate:DEBUG
       QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"  # Fix transaction warning
+      KC_TRANSACTION_XA_ENABLED: "false"
+      JAVA_OPTS: "-Xms1024m -Xmx2048m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m"
     depends_on:
       w4b_postgres_keycloak:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
-      timeout: 10s
+      test: curl -f https://localhost:8443/health/ready || exit 1
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s  # Fix: Add startup grace period
-    restart: unless-stopped
-    user: "keycloak:keycloak"  # Added for Docker compatibility
+    logging:
+      driver: "k8s-file"
+    user: "keycloak:keycloak"
     command: 
-      - "start-dev"
-      - "--import-realm"
-      - "--http-enabled=true"
-      - "--hostname-strict=false"
+      - "start"
+      - "--optimized"
+      - "--https-certificate-file=/opt/keycloak/conf/tls.crt"
+      - "--https-certificate-key-file=/opt/keycloak/conf/tls.key"
     deploy:
       restart_policy:
         condition: on-failure
@@ -233,19 +271,23 @@ services:
       - "127.0.0.1:30090:9090"  # Changed from dynamic 9090
     volumes:
       - w4b_data_prometheus:/prometheus
-      - w4b_config_prometheus:/etc/prometheus
+      - w4b_config_prometheus:/etc/prometheus:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 10s
+      test: wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1
+      interval: 10s
+      timeout: 5s
       retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "nobody:nogroup"
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
 
   w4b_alertmanager:
     image: docker.io/prom/alertmanager:v0.26.0
@@ -277,6 +319,9 @@ services:
         aliases:
           - grafana
       w4b_monitoring:  # For data source access
+      w4b_backend:
+        aliases:
+          - grafana_backend
     hostname: grafana
     dns:
       - 10.90.3.1  # Monitoring network DNS
@@ -284,7 +329,7 @@ services:
       - "127.0.0.1:30000:3000"  # Changed from 3000
     volumes:
       - w4b_data_grafana:/var/lib/grafana
-      - w4b_config_grafana:/etc/grafana/provisioning
+      - w4b_config_grafana:/etc/grafana/provisioning:ro
     environment:
       GF_SECURITY_ADMIN_USER: ${W4B__GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${W4B__GRAFANA_ADMIN_PASSWORD}
@@ -300,12 +345,14 @@ services:
       w4b_prometheus:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
-      interval: 30s
-      timeout: 10s
+      test: wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+      interval: 10s
+      timeout: 5s
       retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "grafana:grafana"
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
     deploy:
       restart_policy:
         condition: on-failure
@@ -344,7 +391,7 @@ services:
       - "127.0.0.1:30686:8686"  # Changed from dynamic 8686
     volumes:
       - w4b_data_vector:/vector
-      - w4b_config_vector:/etc/vector/vector.yaml
+      - w4b_config_vector:/etc/vector/vector.yaml:ro
       - /var/log:/var/log:ro
     command: ["--config-yaml", "/etc/vector/vector.yaml"]  # Fix: Change --config to --config-yaml
     depends_on:
