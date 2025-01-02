@@ -1,0 +1,104 @@
+version: '3.9'
+
+networks:
+  keycloak_test:
+    driver: bridge
+    internal: false  # Changed to allow external access
+    ipam:
+      config:
+        - subnet: 10.99.0.0/24
+          gateway: 10.99.0.1
+
+volumes:
+  keycloak_db_test: {}
+  keycloak_conf_test: {}
+
+services:
+  postgres_keycloak_test:
+    image: docker.io/library/postgres:17.2
+    container_name: postgres_keycloak_test
+    networks:
+      keycloak_test:
+        aliases:
+          - postgres_keycloak
+        ipv4_address: 10.99.0.10  # Add fixed IP
+    ports:
+      - "127.0.0.1:30434:5432"
+    volumes:
+      - keycloak_db_test:/var/lib/postgresql/data
+      - ./config/postgres_keycloak:/etc/postgresql:ro
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${W4B__POSTGRES_KEYCLOAK_USER}
+      POSTGRES_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: md5
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    healthcheck:
+      test: pg_isready -U ${W4B__POSTGRES_KEYCLOAK_USER} -d keycloak
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "postgres:postgres"
+    command: >
+      postgres 
+      -c 'log_statement=all' 
+      -c 'log_connections=on'
+      -c 'max_connections=200'
+      -c 'listen_addresses=*'
+
+  keycloak_test:
+    image: docker.io/keycloak/keycloak:23.0.3
+    container_name: keycloak_test
+    networks:
+      keycloak_test:
+        aliases:
+          - keycloak
+    ports:
+      - "30080:8080"
+    volumes:
+      - ./config/keycloak:/opt/keycloak/conf:ro
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://10.99.0.10:5432/keycloak
+      KC_DB_USERNAME: ${W4B__POSTGRES_KEYCLOAK_USER}
+      KC_DB_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
+      KC_HOSTNAME: localhost
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: none
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${W4B__KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${W4B__KEYCLOAK_ADMIN_PASSWORD}
+      KC_TRANSACTION_XA_ENABLED: "false"
+      KC_LOG_LEVEL: "INFO,org.keycloak.transaction:DEBUG"
+      JAVA_OPTS: "-Xms1024m -Xmx2048m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m"
+    entrypoint:
+      - /opt/keycloak/bin/kc.sh
+    command:
+      - "start-dev"
+      - "--db=postgres"
+      - "--db-url=jdbc:postgresql://10.99.0.10:5432/keycloak"
+      - "--db-username=${W4B__POSTGRES_KEYCLOAK_USER}"
+      - "--db-password=${W4B__POSTGRES_KEYCLOAK_PASSWORD}"
+      - "--http-enabled=true"
+      - "--http-port=8080"
+      - "--hostname=localhost"
+      - "--hostname-strict=false"
+      - "--health-enabled=true"
+      - "--metrics-enabled=true"
+      - "--cache=local"
+      - "--transaction-xa-enabled=false"
+      - "-Dquarkus.http.root-path=/"
+    depends_on:
+      postgres_keycloak_test:
+        condition: service_healthy
+    healthcheck:
+      test: curl -f http://localhost:8080/health/ready || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "k8s-file"
+    user: "keycloak:keycloak"

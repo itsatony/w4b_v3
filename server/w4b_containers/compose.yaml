@@ -183,7 +183,7 @@ services:
       - ./themes/keycloak:/opt/keycloak/themes/custom
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://w4b_postgres_keycloak:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://w4b_postgres_keycloak:30434/keycloak
       KC_DB_USERNAME: ${W4B__POSTGRES_KEYCLOAK_USER}
       KC_DB_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
       KEYCLOAK_ADMIN: ${W4B__KEYCLOAK_ADMIN_USER}
@@ -207,7 +207,7 @@ services:
       retries: 3
       start_period: 60s  # Fix: Add startup grace period
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
+    user: "keycloak:keycloak"  # Added for Docker compatibility
     command: 
       - "start-dev"
       - "--import-realm"
