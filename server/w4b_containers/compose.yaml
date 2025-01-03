@@ -1,51 +1,67 @@
-name: w4b  # Add explicit project name
+# /server/w4b_containers/compose.yaml
+name: w4b
 version: '3.9'
 
 networks:
   w4b_frontend:
-    name: w4b_frontend  # Add explicit network name
+    name: w4b_frontend
     driver: bridge
     internal: false
     ipam:
       config:
         - subnet: 10.88.0.0/24
           gateway: 10.88.0.1
+    labels:
+      hive.w4b.description: "Frontend network for web services"
+      hive.w4b.type: "frontend"
 
   w4b_application:
     name: w4b_application
     driver: bridge
-    internal: true  # No external access
+    internal: true
     ipam:
       config:
         - subnet: 10.90.1.0/24
           gateway: 10.90.1.1
+    labels:
+      hive.w4b.description: "Application service network"
+      hive.w4b.type: "application"
 
   w4b_database:
     name: w4b_database
     driver: bridge
-    internal: true  # No external access
+    internal: true
     ipam:
       config:
         - subnet: 10.90.2.0/24
           gateway: 10.90.2.1
+    labels:
+      hive.w4b.description: "Database network"
+      hive.w4b.type: "database"
 
   w4b_monitoring:
     name: w4b_monitoring
     driver: bridge
-    internal: true  # No external access
+    internal: true
     ipam:
       config:
         - subnet: 10.90.3.0/24
           gateway: 10.90.3.1
+    labels:
+      hive.w4b.description: "Monitoring network"
+      hive.w4b.type: "monitoring"
 
   w4b_vpn:
     name: w4b_vpn
     driver: bridge
-    internal: false  # Needs external access
+    internal: false
     ipam:
       config:
         - subnet: 10.90.4.0/24
           gateway: 10.90.4.1
+    labels:
+      hive.w4b.description: "VPN network for edge devices"
+      hive.w4b.type: "vpn"
 
   w4b_backend:
     name: w4b_backend
@@ -55,38 +71,41 @@ networks:
       config:
         - subnet: 10.88.1.0/24
           gateway: 10.88.1.1
+    labels:
+      hive.w4b.description: "Backend service network"
+      hive.w4b.type: "backend"
 
 volumes:
   # Keycloak volumes
-  w4b_keycloak_postgres: {}        # Main DB volume
-  w4b_keycloak_config: {}          # Keycloak config
-  w4b_keycloak_data: {}            # Runtime data
-  w4b_keycloak_themes: {}          # Custom themes
-  w4b_keycloak_providers: {}       # Custom providers
+  w4b_keycloak_postgres: {}
+  w4b_keycloak_config: {}
+  w4b_keycloak_data: {}
+  w4b_keycloak_themes: {}
+  w4b_keycloak_providers: {}
 
   # TimescaleDB volumes
-  w4b_timescaledb_data: {}        # Database files
-  w4b_timescaledb_config: {}      # Configuration
+  w4b_timescaledb_data: {}
+  w4b_timescaledb_config: {}
 
   # Application DB volumes
-  w4b_postgres_app_data: {}       # Database files
-  w4b_postgres_app_config: {}     # Configuration
+  w4b_postgres_app_data: {}
+  w4b_postgres_app_config: {}
 
   # Redis volumes  
-  w4b_redis_data: {}             # Redis data
-  w4b_redis_config: {}           # Redis config
+  w4b_redis_data: {}
+  w4b_redis_config: {}
 
   # Monitoring volumes
-  w4b_prometheus_data: {}        # TSDB storage
-  w4b_prometheus_config: {}      # Prometheus config
-  w4b_grafana_data: {}          # Grafana data
-  w4b_grafana_config: {}        # Grafana provisioning
+  w4b_prometheus_data: {}
+  w4b_prometheus_config: {}
+  w4b_grafana_data: {}
+  w4b_grafana_config: {}
   
   # Logging volumes
-  w4b_loki_data: {}            # Loki data
-  w4b_loki_config: {}          # Loki config
-  w4b_vector_data: {}          # Vector data
-  w4b_vector_config: {}        # Vector config
+  w4b_loki_data: {}
+  w4b_loki_config: {}
+  w4b_vector_data: {}
+  w4b_vector_config: {}
 
 services:
   w4b_timescaledb:
@@ -95,7 +114,7 @@ services:
     networks:
       w4b_database:
     ports:
-      - "127.0.0.1:30432:5432"  # Local access only
+      - "127.0.0.1:30432:5432"
     volumes:
       - w4b_timescaledb_data:/var/lib/postgresql/data
       - w4b_timescaledb_config:/etc/postgresql
@@ -109,12 +128,12 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
+    user: "1000:1000"
     labels:
-      w4b.group: "database"
-      w4b.description: "TimescaleDB Time-series Database"
-      w4b.type: "database"
-      w4b.priority: "10"
+      hive.w4b.group: "database"
+      hive.w4b.description: "TimescaleDB Time-series Database"
+      hive.w4b.type: "database"
+      hive.w4b.priority: "10"
 
   w4b_postgres_app:
     image: docker.io/library/postgres:17.2
@@ -123,7 +142,7 @@ services:
       w4b_backend:
         ipv4_address: 10.88.1.20
     ports:
-      - "127.0.0.1:30433:5432"  # Local access only
+      - "127.0.0.1:30433:5432"
     volumes:
       - w4b_postgres_app_data:/var/lib/postgresql/data
       - w4b_postgres_app_config:/etc/postgresql:ro
@@ -148,10 +167,10 @@ services:
       -c 'listen_addresses=*'
     restart: unless-stopped
     labels:
-      w4b.group: "database"
-      w4b.description: "Application PostgreSQL Database"
-      w4b.type: "database"
-      w4b.priority: "10"
+      hive.w4b.group: "database"
+      hive.w4b.description: "Application PostgreSQL Database"
+      hive.w4b.type: "database"
+      hive.w4b.priority: "10"
 
   w4b_postgres_keycloak:
     image: docker.io/library/postgres:17.2
@@ -160,7 +179,7 @@ services:
       w4b_backend:
         ipv4_address: 10.88.1.10
     ports:
-      - "127.0.0.1:30434:5432"  # Changed from 0.0.0.0 to localhost only
+      - "127.0.0.1:30434:5432"
     volumes:
       - w4b_keycloak_postgres:/var/lib/postgresql/data
       - w4b_keycloak_config:/etc/postgresql:ro
@@ -171,7 +190,6 @@ services:
       POSTGRES_HOST_AUTH_METHOD: md5
       PGDATA: /var/lib/postgresql/data
       POSTGRES_INITDB_ARGS: "--auth-host=md5"
-    shm_size: '1g'
     healthcheck:
       test: pg_isready -U ${W4B__POSTGRES_KEYCLOAK_USER} -d keycloak
       interval: 5s
@@ -185,16 +203,12 @@ services:
       -c 'max_connections=200'
       -c 'listen_addresses=*'
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 2G 
     labels:
-      w4b.group: "auth"
-      w4b.description: "Keycloak PostgreSQL Database"
-      w4b.type: "database"
-      w4b.priority: "10"
-      w4b.required_by: "w4b_keycloak"
+      hive.w4b.group: "auth"
+      hive.w4b.description: "Keycloak PostgreSQL Database"
+      hive.w4b.type: "database"
+      hive.w4b.priority: "10"
+      hive.w4b.required_by: "w4b_keycloak"
 
   w4b_redis:
     image: docker.io/library/redis:7.2.3
@@ -202,9 +216,9 @@ services:
     networks:
       w4b_backend:
         ipv4_address: 10.88.1.40
-      w4b_database:  # Added for cache persistence
+      w4b_database:
     ports:
-      - "127.0.0.1:30379:6379"  # Local access only
+      - "127.0.0.1:30379:6379"
     volumes:
       - w4b_redis_data:/data
       - w4b_redis_config:/usr/local/etc/redis:ro
@@ -219,10 +233,10 @@ services:
     user: "redis:redis"
     restart: unless-stopped
     labels:
-      w4b.group: "database"
-      w4b.description: "Redis Cache Server"
-      w4b.type: "cache"
-      w4b.priority: "20"
+      hive.w4b.group: "database"
+      hive.w4b.description: "Redis Cache Server"
+      hive.w4b.type: "cache"
+      hive.w4b.priority: "20"
 
   w4b_keycloak:
     image: docker.io/keycloak/keycloak:23.0.3
@@ -257,13 +271,6 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
       KC_CACHE: local
-      KC_LOG_LEVEL: INFO,org.keycloak.services.scheduled:DEBUG,org.keycloak.transaction:DEBUG,org.hibernate:DEBUG
-      QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"
-      KC_TRANSACTION_XA_ENABLED: "false"
-      JAVA_OPTS: "-Xms1024m -Xmx2048m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m"
-    depends_on:
-      w4b_postgres_keycloak:
-        condition: service_healthy
     healthcheck:
       test: curl -f http://localhost:8080/health/ready || exit 1
       interval: 10s
@@ -281,22 +288,22 @@ services:
         delay: 10s
         max_attempts: 3
     labels:
-      w4b.group: "auth"
-      w4b.description: "Keycloak Authentication Server"
-      w4b.type: "service"
-      w4b.priority: "30"
-      w4b.depends_on: "w4b_postgres_keycloak"
+      hive.w4b.group: "auth"
+      hive.w4b.description: "Keycloak Authentication Server"
+      hive.w4b.type: "service"
+      hive.w4b.priority: "30"
+      hive.w4b.depends_on: "w4b_postgres_keycloak"
 
   w4b_prometheus:
     image: docker.io/prom/prometheus:v2.48.1
     container_name: w4b_prometheus
     networks:
       w4b_monitoring:
-      w4b_vpn:  # For edge device metrics
-      w4b_application:  # For API metrics
+      w4b_vpn:
+      w4b_application:
     hostname: prometheus
     ports:
-      - "127.0.0.1:30090:9090"  # Changed from dynamic 9090
+      - "127.0.0.1:30090:9090"
     volumes:
       - w4b_prometheus_data:/prometheus
       - w4b_prometheus_config:/etc/prometheus:ro
@@ -317,11 +324,11 @@ services:
     user: "nobody:nogroup"
     restart: unless-stopped
     labels:
-      w4b.group: "monitoring"
-      w4b.description: "Prometheus Metrics Database"
-      w4b.type: "monitoring"
-      w4b.priority: "20"
-      w4b.required_by: "w4b_grafana"
+      hive.w4b.group: "monitoring"
+      hive.w4b.description: "Prometheus Metrics Database"
+      hive.w4b.type: "monitoring"
+      hive.w4b.priority: "20"
+      hive.w4b.required_by: "w4b_grafana"
 
   w4b_alertmanager:
     image: docker.io/prom/alertmanager:v0.26.0
@@ -329,7 +336,7 @@ services:
     networks:
       w4b_monitoring:
     ports:
-      - "30093:9093"  # Changed from 9093
+      - "30093:9093"
     volumes:
       - ./config/alertmanager:/etc/alertmanager
     command:
@@ -341,26 +348,26 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
+    user: "1000:1000"
     labels:
-      w4b.group: "monitoring"
-      w4b.description: "Prometheus Alert Manager"
-      w4b.type: "monitoring"
-      w4b.priority: "30"
-      w4b.depends_on: "w4b_prometheus"
+      hive.w4b.group: "monitoring"
+      hive.w4b.description: "Prometheus Alert Manager"
+      hive.w4b.type: "monitoring"
+      hive.w4b.priority: "30"
+      hive.w4b.depends_on: "w4b_prometheus"
 
   w4b_grafana:
     image: docker.io/grafana/grafana:10.2.3
     container_name: w4b_grafana
     networks:
-      w4b_frontend:  # For UI access
-      w4b_monitoring:  # For data source access
+      w4b_frontend:
+      w4b_monitoring:
       w4b_backend:
     hostname: grafana
     dns:
-      - 10.90.3.1  # Monitoring network DNS
+      - 10.90.3.1
     ports:
-      - "127.0.0.1:30000:3000"  # Changed from 3000
+      - "127.0.0.1:30000:3000"
     volumes:
       - w4b_grafana_data:/var/lib/grafana
       - w4b_grafana_config:/etc/grafana/provisioning:ro
@@ -393,11 +400,11 @@ services:
         delay: 5s
         max_attempts: 3
     labels:
-      w4b.group: "monitoring"
-      w4b.description: "Grafana Visualization Platform"
-      w4b.type: "visualization"
-      w4b.priority: "40"
-      w4b.depends_on: "w4b_prometheus,w4b_loki"
+      hive.w4b.group: "monitoring"
+      hive.w4b.description: "Grafana Visualization Platform"
+      hive.w4b.type: "visualization"
+      hive.w4b.priority: "40"
+      hive.w4b.depends_on: "w4b_prometheus,w4b_loki"
 
   w4b_node_exporter:
     image: docker.io/prom/node-exporter:v1.7.0
@@ -405,7 +412,7 @@ services:
     networks:
       w4b_monitoring:
     ports:
-      - "30100:9100"  # Changed from 9100
+      - "30100:9100"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -414,14 +421,14 @@ services:
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/rootfs'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
+    user: "1000:1000"
     labels:
-      w4b.group: "monitoring"
-      w4b.description: "Node System Metrics Exporter"
-      w4b.type: "exporter"
-      w4b.priority: "10"
+      hive.w4b.group: "monitoring"
+      hive.w4b.description: "Node System Metrics Exporter"
+      hive.w4b.type: "exporter"
+      hive.w4b.priority: "10"
 
   w4b_vector:
     image: docker.io/timberio/vector:0.34.0-alpine
@@ -429,12 +436,12 @@ services:
     networks:
       w4b_monitoring:
     ports:
-      - "127.0.0.1:30686:8686"  # Changed from dynamic 8686
+      - "127.0.0.1:30686:8686"
     volumes:
       - w4b_vector_data:/vector
       - w4b_vector_config:/etc/vector/vector.yaml:ro
       - /var/log:/var/log:ro
-    command: ["--config-yaml", "/etc/vector/vector.yaml"]  # Fix: Change --config to --config-yaml
+    command: ["--config-yaml", "/etc/vector/vector.yaml"]
     depends_on:
       w4b_loki:
         condition: service_started
@@ -444,7 +451,7 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
-    user: "1000:1000"  # Added for Docker compatibility
+    user: "1000:1000"
     deploy:
       restart_policy:
         condition: on-failure
@@ -453,10 +460,11 @@ services:
     entrypoint: >
       sh -c "vector validate --config /etc/vector/vector.yaml && exec vector --config /etc/vector/vector.yaml"
     labels:
-      w4b.group: "logging"
-      w4b.description: "Vector Log Router"
-      w4b.type: "logging"
-      w4b.priority: "20"
+      hive.w4b.group: "logging"
+      hive.w4b.description: "Vector Log Router"
+      hive.w4b.type: "logging"
+      hive.w4b.priority: "20"
+      hive.w4b.depends_on: "w4b_loki"
 
   w4b_loki:
     image: docker.io/grafana/loki:2.9.3
@@ -464,21 +472,20 @@ services:
     networks:
       w4b_monitoring:
     ports:
-      - "127.0.0.1:30100:3100"  # Changed from 3100
+      - "127.0.0.1:30100:3100"
     volumes:
       - w4b_loki_data:/loki
       - w4b_loki_config:/etc/loki
       - ./data/loki:/data
-      - ./data/loki/wal:/wal  # Fix: Add persistent volume for WAL
+      - ./data/loki/wal:/wal
     command: -config.file=/etc/loki/loki-config.yaml
-    depends_on: []
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
-    user: "1000:1000"  # Fix: Set proper user permissions
+    user: "1000:1000"
     deploy:
       restart_policy:
         condition: on-failure
@@ -486,3 +493,8 @@ services:
         max_attempts: 3
     entrypoint: >
       sh -c "mkdir -p /loki/chunks && chmod -R 777 /loki && exec /usr/bin/loki -config.file=/etc/loki/loki-config.yaml"
+    labels:
+      hive.w4b.group: "logging"
+      hive.w4b.description: "Loki Log Aggregator"
+      hive.w4b.type: "logging"
+      hive.w4b.priority: "10"

@@ -1,212 +1,96 @@
-# HiveCtl - We4Bee Server Management Tool
+# HiveCtl
 
-HiveCtl is a command-line tool for managing the We4Bee server infrastructure, providing easy access to common administrative tasks and monitoring capabilities.
+Management tool for containerized infrastructure with a focus on monitoring and control.
 
 ## Features
 
-- Service management (start, stop, restart)
-- Health monitoring and diagnostics
-- Resource usage statistics
-- Log management
-- VPN connection monitoring
+- Service management with health monitoring
 - Network and volume management
-- Configuration verification
-- System cleanup utilities
+- Resource usage monitoring
+- Configuration validation
+- Detailed logging and diagnostics
 
-## Prerequisites
+## Requirements
 
 - Python 3.8 or higher
-- Docker and Docker Compose
-- Access to We4Bee server infrastructure
+- Podman and podman-compose
+- Linux operating system
 
 ## Installation
 
-1. Clone the repository and navigate to the hivectl directory:
-   ```bash
-   cd server/w4b_containers/hivectl
-   ```
+### From Source
+```bash
+git clone https://github.com/we4bee/hivectl.git
+cd hivectl
+pip install -e .
+```
 
-2. Run the setup script:
-   ```bash
-   chmod +x setup.sh
-   ./setup.sh
-   ```
-
-The setup script will:
-- Create a Python virtual environment
-- Install required dependencies
-- Create a system-wide `hivectl` command
+### Using pip
+```bash
+pip install hivectl
+```
 
 ## Usage
+
+HiveCtl requires a valid `compose.yaml` file in the current directory. The compose file should include proper labels for service management.
 
 ### Basic Commands
 
 ```bash
 # Show service status
-hivectl status [--service SERVICE]
+hivectl status
 
 # Start services
-hivectl start [SERVICES] [--force]
+hivectl start [SERVICE...]
 
 # Stop services
-hivectl stop [SERVICES]
+hivectl stop [SERVICE...]
 
-# Restart services
-hivectl restart [SERVICES]
-
-# View logs
-hivectl logs SERVICE [-n LINES] [-f]
-
-# Run health checks
+# Show health status
 hivectl health
 
-# Update services
-hivectl update [--service SERVICE]
-
-# Clean up resources
-hivectl cleanup
-
-# Initialize or reset data directories
-hivectl init-data [--force]
+# Show logs
+hivectl logs SERVICE
 ```
 
-### Monitoring Commands
+### Service Labels
 
-```bash
-# Show resource usage statistics
-hivectl stats [--full]
+HiveCtl uses labels in the compose file to manage services. Required labels:
 
-# Show network information
-hivectl networks
-
-# List volumes and usage
-hivectl volumes
-
-# Show VPN connections
-hivectl vpn
-
-# Show configuration status
-hivectl config
+```yaml
+services:
+  example_service:
+    labels:
+      hive.w4b.group: "group_name"
+      hive.w4b.type: "service_type"
+      hive.w4b.description: "Service description"
+      hive.w4b.priority: "10"
 ```
 
-### Advanced Commands
-
-```bash
-# Debug service
-hivectl debug SERVICE
-
-# Open shell in service
-hivectl exec SERVICE
+Optional labels:
+```yaml
+      hive.w4b.depends_on: "service1,service2"
+      hive.w4b.required_by: "service3,service4"
 ```
 
-## Command Details
+## Configuration
 
-### Service Management
-
-- `status`: Shows the current status of all services or a specific service
-  ```bash
-  hivectl status --service keycloak
-  ```
-
-- `start`: Starts one or more services
-  ```bash
-  hivectl start prometheus grafana
-  hivectl start --force  # Recreate containers
-  ```
-
-- `stop`: Stops one or more services
-  ```bash
-  hivectl stop timescaledb
-  ```
-
-### Monitoring
-
-- `stats`: Shows resource usage statistics
-  ```bash
-  hivectl stats --full  # Show detailed statistics
-  ```
-
-- `health`: Runs comprehensive health checks
-  ```bash
-  hivectl health
-  ```
-
-- `vpn`: Shows VPN connection status
-  ```bash
-  hivectl vpn
-  ```
-
-### Maintenance
-
-- `update`: Updates services to latest versions
-  ```bash
-  hivectl update --service redis
-  ```
-
-- `cleanup`: Removes unused resources
-  ```bash
-  hivectl cleanup
-  ```
-
-- `volumes`: Shows volume information
-  ```bash
-  hivectl volumes
-  ```
-
-## Logs and Debugging
-
-- View logs:
-  ```bash
-  hivectl logs keycloak -n 100  # Show last 100 lines
-  hivectl logs prometheus -f    # Follow log output
-  ```
-
-- Debug service:
-  ```bash
-  hivectl debug timescaledb
-  ```
-
-- Access service shell:
-  ```bash
-  hivectl exec postgres_app
-  ```
-
-## Configuration Status
-
-Check configuration status:
-```bash
-hivectl config
-```
-
-This shows:
-- Compose file status
-- Configuration directory status
-- Data directory status
-
-## Error Handling
-
-- Commands provide colored output for status and errors
-- Detailed error messages for troubleshooting
-- Non-zero exit codes for failed operations
+HiveCtl uses a hierarchical label structure:
+- `hive.` - Tool namespace
+- `w4b.` - Project identifier
+- `label_name` - Actual label (group, type, etc.)
 
 ## Development
 
-To modify or extend HiveCtl:
+### Setup Development Environment
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+```
 
-1. Activate the virtual environment:
-   ```bash
-   source .venv/bin/activate
-   ```
-
-2. Make changes to `hivectl.py`
-
-3. Add new dependencies to `requirements.txt` if needed
-
-4. Run setup script to update installation:
-   ```bash
-   ./setup.sh
-   ```
-
-## Support
-
-For issues and feature requests, please contact the We4Bee team.
+### Running Tests
+```bash
+pytest tests/
+```

@@ -1,0 +1,33 @@
+version: 1
+formatters:
+  default:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+  detailed:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+handlers:
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: detailed
+    filename: logs/hivectl.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: default
+    stream: ext://sys.stdout
+
+loggers:
+  hivectl:
+    level: DEBUG
+    handlers: [file, console]
+    propagate: no
+
+root:
+  level: INFO
+  handlers: [console]
