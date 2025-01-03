@@ -1,9 +1,9 @@
-# /server/w4b_containers/docker-compose.yaml
-
+name: w4b  # Add explicit project name
 version: '3.9'
 
 networks:
   w4b_frontend:
+    name: w4b_frontend  # Add explicit network name
     driver: bridge
     internal: false
     ipam:
@@ -12,6 +12,7 @@ networks:
           gateway: 10.88.0.1
 
   w4b_application:
+    name: w4b_application
     driver: bridge
     internal: true  # No external access
     ipam:
@@ -20,6 +21,7 @@ networks:
           gateway: 10.90.1.1
 
   w4b_database:
+    name: w4b_database
     driver: bridge
     internal: true  # No external access
     ipam:
@@ -28,6 +30,7 @@ networks:
           gateway: 10.90.2.1
 
   w4b_monitoring:
+    name: w4b_monitoring
     driver: bridge
     internal: true  # No external access
     ipam:
@@ -36,6 +39,7 @@ networks:
           gateway: 10.90.3.1
 
   w4b_vpn:
+    name: w4b_vpn
     driver: bridge
     internal: false  # Needs external access
     ipam:
@@ -44,6 +48,7 @@ networks:
           gateway: 10.90.4.1
 
   w4b_backend:
+    name: w4b_backend
     driver: bridge
     internal: true
     ipam:
@@ -52,27 +57,36 @@ networks:
           gateway: 10.88.1.1
 
 volumes:
-  w4b_config_grafana: {}
-  w4b_config_prometheus: {}
-  w4b_config_keycloak: {}
-  w4b_config_redis: {}
-  w4b_config_vector: {}
-  w4b_config_loki: {}
-  w4b_config_alertmanager: {}
-  w4b_config_timescaledb: {}
-  w4b_config_postgres_app: {}
-  w4b_config_postgres_keycloak: {}
-  w4b_data_timescaledb: {}
-  w4b_data_postgres_app: {}
-  w4b_data_postgres_keycloak: {}
-  w4b_data_redis: {}
-  w4b_data_prometheus: {}
-  w4b_data_grafana: {}
-  w4b_data_loki: {}
-  w4b_data_vector: {}
-  w4b_postgres_app: {}
-  w4b_postgres_keycloak: {}
-  w4b_postgres_timescale: {}
+  # Keycloak volumes
+  w4b_keycloak_postgres: {}        # Main DB volume
+  w4b_keycloak_config: {}          # Keycloak config
+  w4b_keycloak_data: {}            # Runtime data
+  w4b_keycloak_themes: {}          # Custom themes
+  w4b_keycloak_providers: {}       # Custom providers
+
+  # TimescaleDB volumes
+  w4b_timescaledb_data: {}        # Database files
+  w4b_timescaledb_config: {}      # Configuration
+
+  # Application DB volumes
+  w4b_postgres_app_data: {}       # Database files
+  w4b_postgres_app_config: {}     # Configuration
+
+  # Redis volumes  
+  w4b_redis_data: {}             # Redis data
+  w4b_redis_config: {}           # Redis config
+
+  # Monitoring volumes
+  w4b_prometheus_data: {}        # TSDB storage
+  w4b_prometheus_config: {}      # Prometheus config
+  w4b_grafana_data: {}          # Grafana data
+  w4b_grafana_config: {}        # Grafana provisioning
+  
+  # Logging volumes
+  w4b_loki_data: {}            # Loki data
+  w4b_loki_config: {}          # Loki config
+  w4b_vector_data: {}          # Vector data
+  w4b_vector_config: {}        # Vector config
 
 services:
   w4b_timescaledb:
@@ -80,13 +94,11 @@ services:
     container_name: w4b_timescaledb
     networks:
       w4b_database:
-        aliases:
-          - timescaledb
     ports:
       - "127.0.0.1:30432:5432"  # Local access only
     volumes:
-      - w4b_data_timescaledb:/var/lib/postgresql/data
-      - w4b_config_timescaledb:/etc/postgresql
+      - w4b_timescaledb_data:/var/lib/postgresql/data
+      - w4b_timescaledb_config:/etc/postgresql
     environment:
       POSTGRES_DB: w4b_metrics
       POSTGRES_USER: ${W4B__TIMESCALEDB_USER}
@@ -98,20 +110,23 @@ services:
       retries: 5
     restart: unless-stopped
     user: "1000:1000"  # Added for Docker compatibility
+    labels:
+      w4b.group: "database"
+      w4b.description: "TimescaleDB Time-series Database"
+      w4b.type: "database"
+      w4b.priority: "10"
 
   w4b_postgres_app:
     image: docker.io/library/postgres:17.2
     container_name: w4b_postgres_app
     networks:
       w4b_backend:
-        aliases:
-          - postgres_app
         ipv4_address: 10.88.1.20
     ports:
       - "127.0.0.1:30433:5432"  # Local access only
     volumes:
-      - w4b_postgres_app:/var/lib/postgresql/data
-      - ./config/postgres_app:/etc/postgresql:ro
+      - w4b_postgres_app_data:/var/lib/postgresql/data
+      - w4b_postgres_app_config:/etc/postgresql:ro
     environment:
       POSTGRES_DB: w4b_app
       POSTGRES_USER: ${W4B__POSTGRES_APP_USER}
@@ -132,20 +147,23 @@ services:
       -c 'max_connections=200'
       -c 'listen_addresses=*'
     restart: unless-stopped
+    labels:
+      w4b.group: "database"
+      w4b.description: "Application PostgreSQL Database"
+      w4b.type: "database"
+      w4b.priority: "10"
 
   w4b_postgres_keycloak:
     image: docker.io/library/postgres:17.2
     container_name: w4b_postgres_keycloak
     networks:
       w4b_backend:
-        aliases:
-          - postgres_keycloak
         ipv4_address: 10.88.1.10
     ports:
       - "127.0.0.1:30434:5432"  # Changed from 0.0.0.0 to localhost only
     volumes:
-      - w4b_postgres_keycloak:/var/lib/postgresql/data
-      - ./config/postgres_keycloak:/etc/postgresql:ro
+      - w4b_keycloak_postgres:/var/lib/postgresql/data
+      - w4b_keycloak_config:/etc/postgresql:ro
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: ${W4B__POSTGRES_KEYCLOAK_USER}
@@ -171,21 +189,25 @@ services:
       resources:
         limits:
           memory: 2G 
+    labels:
+      w4b.group: "auth"
+      w4b.description: "Keycloak PostgreSQL Database"
+      w4b.type: "database"
+      w4b.priority: "10"
+      w4b.required_by: "w4b_keycloak"
 
   w4b_redis:
     image: docker.io/library/redis:7.2.3
     container_name: w4b_redis
     networks:
       w4b_backend:
-        aliases:
-          - redis
         ipv4_address: 10.88.1.40
       w4b_database:  # Added for cache persistence
     ports:
       - "127.0.0.1:30379:6379"  # Local access only
     volumes:
-      - w4b_redis:/data
-      - ./config/redis:/usr/local/etc/redis:ro
+      - w4b_redis_data:/data
+      - w4b_redis_config:/usr/local/etc/redis:ro
     command: redis-server /usr/local/etc/redis/redis.conf
     healthcheck:
       test: redis-cli ping
@@ -196,27 +218,31 @@ services:
       driver: "k8s-file"
     user: "redis:redis"
     restart: unless-stopped
+    labels:
+      w4b.group: "database"
+      w4b.description: "Redis Cache Server"
+      w4b.type: "cache"
+      w4b.priority: "20"
 
   w4b_keycloak:
     image: docker.io/keycloak/keycloak:23.0.3
     container_name: w4b_keycloak
     networks:
-      w4b_frontend:  # For external access
-        aliases:
-          - keycloak
-      w4b_backend:  # For DB access
-        aliases:
-          - keycloak_backend
+      w4b_frontend:
+      w4b_backend:
     hostname: keycloak
     dns:
-      - 10.90.2.1  # Database network DNS
+      - 10.90.2.1
     extra_hosts:
-      - "postgres_keycloak:10.90.2.3"  # Match DB container IP
+      - "postgres_keycloak:10.90.2.3"
     ports:
-      - "30080:8080"  # Changed from 8443
+      - "30080:8080"
     volumes:
-      - ./config/keycloak:/opt/keycloak/conf:ro
-      - ./themes/keycloak:/opt/keycloak/themes/custom
+      - w4b_keycloak_config:/opt/keycloak/conf:ro
+      - w4b_keycloak_data:/opt/keycloak/data
+      - w4b_keycloak_themes:/opt/keycloak/themes
+      - w4b_keycloak_providers:/opt/keycloak/providers
+      - ./themes/keycloak:/opt/keycloak/themes/custom:ro
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://10.88.1.10:5432/keycloak
@@ -232,14 +258,14 @@ services:
       KC_METRICS_ENABLED: "true"
       KC_CACHE: local
       KC_LOG_LEVEL: INFO,org.keycloak.services.scheduled:DEBUG,org.keycloak.transaction:DEBUG,org.hibernate:DEBUG
-      QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"  # Fix transaction warning
+      QUARKUS_TRANSACTION_MANAGER_ENABLE_RECOVERY: "true"
       KC_TRANSACTION_XA_ENABLED: "false"
       JAVA_OPTS: "-Xms1024m -Xmx2048m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m"
     depends_on:
       w4b_postgres_keycloak:
         condition: service_healthy
     healthcheck:
-      test: curl -f https://localhost:8443/health/ready || exit 1
+      test: curl -f http://localhost:8080/health/ready || exit 1
       interval: 10s
       timeout: 5s
       retries: 3
@@ -249,29 +275,31 @@ services:
     command: 
       - "start"
       - "--optimized"
-      - "--https-certificate-file=/opt/keycloak/conf/tls.crt"
-      - "--https-certificate-key-file=/opt/keycloak/conf/tls.key"
     deploy:
       restart_policy:
         condition: on-failure
         delay: 10s
         max_attempts: 3
+    labels:
+      w4b.group: "auth"
+      w4b.description: "Keycloak Authentication Server"
+      w4b.type: "service"
+      w4b.priority: "30"
+      w4b.depends_on: "w4b_postgres_keycloak"
 
   w4b_prometheus:
     image: docker.io/prom/prometheus:v2.48.1
     container_name: w4b_prometheus
     networks:
       w4b_monitoring:
-        aliases:
-          - prometheus
       w4b_vpn:  # For edge device metrics
       w4b_application:  # For API metrics
     hostname: prometheus
     ports:
       - "127.0.0.1:30090:9090"  # Changed from dynamic 9090
     volumes:
-      - w4b_data_prometheus:/prometheus
-      - w4b_config_prometheus:/etc/prometheus:ro
+      - w4b_prometheus_data:/prometheus
+      - w4b_prometheus_config:/etc/prometheus:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -288,14 +316,18 @@ services:
       driver: "k8s-file"
     user: "nobody:nogroup"
     restart: unless-stopped
+    labels:
+      w4b.group: "monitoring"
+      w4b.description: "Prometheus Metrics Database"
+      w4b.type: "monitoring"
+      w4b.priority: "20"
+      w4b.required_by: "w4b_grafana"
 
   w4b_alertmanager:
     image: docker.io/prom/alertmanager:v0.26.0
     container_name: w4b_alertmanager
     networks:
       w4b_monitoring:
-        aliases:
-          - alertmanager
     ports:
       - "30093:9093"  # Changed from 9093
     volumes:
@@ -310,26 +342,28 @@ services:
       retries: 3
     restart: unless-stopped
     user: "1000:1000"  # Added for Docker compatibility
+    labels:
+      w4b.group: "monitoring"
+      w4b.description: "Prometheus Alert Manager"
+      w4b.type: "monitoring"
+      w4b.priority: "30"
+      w4b.depends_on: "w4b_prometheus"
 
   w4b_grafana:
     image: docker.io/grafana/grafana:10.2.3
     container_name: w4b_grafana
     networks:
       w4b_frontend:  # For UI access
-        aliases:
-          - grafana
       w4b_monitoring:  # For data source access
       w4b_backend:
-        aliases:
-          - grafana_backend
     hostname: grafana
     dns:
       - 10.90.3.1  # Monitoring network DNS
     ports:
       - "127.0.0.1:30000:3000"  # Changed from 3000
     volumes:
-      - w4b_data_grafana:/var/lib/grafana
-      - w4b_config_grafana:/etc/grafana/provisioning:ro
+      - w4b_grafana_data:/var/lib/grafana
+      - w4b_grafana_config:/etc/grafana/provisioning:ro
     environment:
       GF_SECURITY_ADMIN_USER: ${W4B__GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${W4B__GRAFANA_ADMIN_PASSWORD}
@@ -358,14 +392,18 @@ services:
         condition: on-failure
         delay: 5s
         max_attempts: 3
+    labels:
+      w4b.group: "monitoring"
+      w4b.description: "Grafana Visualization Platform"
+      w4b.type: "visualization"
+      w4b.priority: "40"
+      w4b.depends_on: "w4b_prometheus,w4b_loki"
 
   w4b_node_exporter:
     image: docker.io/prom/node-exporter:v1.7.0
     container_name: w4b_node_exporter
     networks:
       w4b_monitoring:
-        aliases:
-          - node_exporter
     ports:
       - "30100:9100"  # Changed from 9100
     volumes:
@@ -379,19 +417,22 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     restart: unless-stopped
     user: "1000:1000"  # Added for Docker compatibility
+    labels:
+      w4b.group: "monitoring"
+      w4b.description: "Node System Metrics Exporter"
+      w4b.type: "exporter"
+      w4b.priority: "10"
 
   w4b_vector:
     image: docker.io/timberio/vector:0.34.0-alpine
     container_name: w4b_vector
     networks:
       w4b_monitoring:
-        aliases:
-          - vector
     ports:
       - "127.0.0.1:30686:8686"  # Changed from dynamic 8686
     volumes:
-      - w4b_data_vector:/vector
-      - w4b_config_vector:/etc/vector/vector.yaml:ro
+      - w4b_vector_data:/vector
+      - w4b_vector_config:/etc/vector/vector.yaml:ro
       - /var/log:/var/log:ro
     command: ["--config-yaml", "/etc/vector/vector.yaml"]  # Fix: Change --config to --config-yaml
     depends_on:
@@ -411,19 +452,22 @@ services:
         max_attempts: 3
     entrypoint: >
       sh -c "vector validate --config /etc/vector/vector.yaml && exec vector --config /etc/vector/vector.yaml"
+    labels:
+      w4b.group: "logging"
+      w4b.description: "Vector Log Router"
+      w4b.type: "logging"
+      w4b.priority: "20"
 
   w4b_loki:
     image: docker.io/grafana/loki:2.9.3
     container_name: w4b_loki
     networks:
       w4b_monitoring:
-        aliases:
-          - loki
     ports:
       - "127.0.0.1:30100:3100"  # Changed from 3100
     volumes:
-      - w4b_data_loki:/loki
-      - w4b_config_loki:/etc/loki
+      - w4b_loki_data:/loki
+      - w4b_loki_config:/etc/loki
       - ./data/loki:/data
       - ./data/loki/wal:/wal  # Fix: Add persistent volume for WAL
     command: -config.file=/etc/loki/loki-config.yaml

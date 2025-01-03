@@ -1,5 +1,3 @@
-# /server/w4b_containers/hivectl/hivectl.py
-
 import os
 import sys
 import time
@@ -15,58 +13,130 @@ from rich.panel import Panel
 from rich.tree import Tree
 from rich import print as rprint
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 console = Console()
-
-# Service group definitions with descriptions
-SERVICE_GROUPS = {
-    'keycloak': {
-        'description': 'Authentication and Authorization services (Keycloak + PostgreSQL)',
-        'containers': ['w4b_keycloak', 'w4b_postgres_keycloak']
-    },
-    'monitoring': {
-        'description': 'System monitoring stack (Prometheus, Grafana, AlertManager, Blackbox)',
-        'containers': ['w4b_prometheus', 'w4b_grafana', 'w4b_alertmanager', 'w4b_blackbox']
-    },
-    'database': {
-        'description': 'Primary data storage services (TimescaleDB, PostgreSQL, Redis)',
-        'containers': ['w4b_timescaledb', 'w4b_postgres_app', 'w4b_redis']
-    },
-    'logging': {
-        'description': 'Log aggregation and management (Vector, Loki)',
-        'containers': ['w4b_vector', 'w4b_loki']
-    },
-    'api': {
-        'description': 'Core API service for W4B platform',
-        'containers': ['w4b_api']
-    },
-    'vpn': {
-        'description': 'VPN service for secure edge device communication (WireGuard)',
-        'containers': ['w4b_wireguard']
-    }
-}
-
-# Reverse mapping for container to service group lookup
-CONTAINER_TO_GROUP = {
-    container: group
-    for group, details in SERVICE_GROUPS.items()
-    for container in details['containers']
-}
 
 class HiveCtl:
     def __init__(self):
         self.script_dir = Path(__file__).resolve().parent
         self.deployment_dir = self.script_dir.parent
-        self.scripts_dir = self.deployment_dir / "scripts"  # Add scripts directory
+        self.scripts_dir = self.deployment_dir / "scripts"
         self.compose_file = self.deployment_dir / "compose.yaml"
         self.config_dir = self.deployment_dir / "config"
         self.env = self.load_env()
         self.load_compose_config()
+        self.service_groups = self._load_service_groups()
+        self.service_metadata = self._load_service_metadata()
+        self.networks = self._load_network_metadata()
+        self.volumes = self._load_volume_metadata()
+        self.project_name = "w4b"
+
+    def _load_service_groups(self):
+        """Load service groups from compose file labels"""
+        groups = {}
+        services = self.compose_config.get('services', {})
+        
+        for service_name, service_config in services.items():
+            labels = service_config.get('labels', {})
+            group_name = labels.get('w4b.group')
+            
+            if group_name:
+                if group_name not in groups:
+                    groups[group_name] = {
+                        'description': f"Services for {group_name}",
+                        'services': []
+                    }
+                groups[group_name]['services'].append(service_name)
+        
+        return groups
+
+    def _load_service_metadata(self):
+        """Load service groups and metadata from compose file labels"""
+        metadata = {
+            'groups': {},
+            'services': {},
+            'types': set()
+        }
+        
+        services = self.compose_config.get('services', {})
+        for service_name, service_config in services.items():
+            labels = service_config.get('labels', {})
+            
+            # Skip services without labels
+            if not labels:
+                continue
+            
+            # Extract metadata
+            group = labels.get('w4b.group')
+            description = labels.get('w4b.description', '')
+            service_type = labels.get('w4b.type', 'service')
+            priority = int(labels.get('w4b.priority', '50'))
+            depends_on = labels.get('w4b.depends_on', '').split(',')
+            required_by = labels.get('w4b.required_by', '').split(',')
+            
+            # Clean up empty strings from lists
+            depends_on = [d.strip() for d in depends_on if d.strip()]
+            required_by = [r.strip() for r in required_by if r.strip()]
+            
+            # Store service metadata
+            metadata['services'][service_name] = {
+                'group': group,
+                'description': description,
+                'type': service_type,
+                'priority': priority,
+                'depends_on': depends_on,
+                'required_by': required_by
+            }
+            
+            # Add to type set
+            metadata['types'].add(service_type)
+            
+            # Group metadata
+            if group:
+                if group not in metadata['groups']:
+                    metadata['groups'][group] = {
+                        'description': f"Services for {group}",
+                        'services': [],
+                        'types': set()
+                    }
+                metadata['groups'][group]['services'].append(service_name)
+                metadata['groups'][group]['types'].add(service_type)
+        
+        return metadata
+
+    def _load_network_metadata(self):
+        """Load network configuration from compose file"""
+        networks = {}
+        for name, config in self.compose_config.get('networks', {}).items():
+            networks[name] = {
+                'driver': config.get('driver', 'bridge'),
+                'internal': config.get('internal', False),
+                'ipam': config.get('ipam', {}),
+                'description': config.get('labels', {}).get('w4b.description', 'Network')
+            }
+        return networks
+
+    def _load_volume_metadata(self):
+        """Load volume configuration from compose file"""
+        volumes = {}
+        volume_configs = self.compose_config.get('volumes', {})
+        
+        # Group volumes by their prefix
+        for name in volume_configs:
+            parts = name.split('_')
+            if len(parts) > 2:
+                group = '_'.join(parts[0:2])  # w4b_service
+                type_name = '_'.join(parts[2:])  # volume type (data, config, etc)
+                if group not in volumes:
+                    volumes[group] = {}
+                volumes[group][type_name] = name
+        
+        return volumes
 
     def load_env(self):
         """Load environment variables from .env file"""
         env_path = self.deployment_dir / ".env"
-        if env_path.exists():
+        if (env_path.exists()):
             env_vars = {}
             with open(env_path) as f:
                 for line in f:
@@ -98,20 +168,18 @@ class HiveCtl:
             self.networks = []
 
     def get_service_containers(self, service):
-        """Get all containers associated with a service"""
-        service = service.lower()
-        # Direct container name match
-        if service.startswith('w4b_'):
+        """Get containers for a service or group"""
+        metadata = self.service_metadata
+        
+        # Check if it's a group
+        if service in metadata['groups']:
+            return metadata['groups'][service]['services']
+        
+        # Check if it's a direct service name
+        if service in metadata['services']:
             return [service]
-        # Service group match
-        if service in SERVICE_GROUPS:
-            return SERVICE_GROUPS[service]['containers']
-        # Try to find partial matches
-        for group, details in SERVICE_GROUPS.items():
-            if group.startswith(service):
-                return details['containers']
-        # Default to prefixed service name if no match found
-        return [f'w4b_{service}']
+        
+        return []
 
     def run_command(self, cmd, capture_output=True, env=None, show_output=False):
         """Enhanced command execution with better output handling"""
@@ -175,51 +243,56 @@ class HiveCtl:
 
     def get_service_details(self, service):
         """Get detailed configuration for a service"""
-        if not service.startswith('w4b_'):
-            service = f'w4b_{service}'
-        
         return self.compose_config.get('services', {}).get(service, {})
 
+    def verify_networks(self):
+        """Verify all required networks exist"""
+        try:
+            existing = json.loads(self.run_command("podman network ls --format json").stdout)
+            existing_names = [n['Name'] for n in existing]
+            
+            return {
+                name: {
+                    'exists': name in existing_names,
+                    'config': config,
+                    'details': next((n for n in existing if n['Name'] == name), None)
+                }
+                for name, config in self.networks.items()
+            }
+        except Exception as e:
+            console.print(f"[red]Error verifying networks: {e}[/red]")
+            return {}
+
     def verify_config_dirs(self):
-        """Verify all required configuration directories exist"""
-        required_configs = {
-            'prometheus': ['prometheus.yml'],
-            'grafana': ['grafana.ini', 'provisioning'],
-            'keycloak': ['keycloak.conf'],
-            'redis': ['redis.conf'],
-            'vector': ['vector.yaml'],
-            'loki': ['loki-config.yaml'],
-            'alertmanager': ['alertmanager.yml']
-        }
-
+        """Verify configuration directories from compose services"""
         config_status = {}
-        for service, files in required_configs.items():
-            service_dir = self.config_dir / service
-            if not service_dir.exists():
-                config_status[service] = False
-                continue
-
-            config_status[service] = all(
-                (service_dir / file).exists() for file in files
-            )
-
+        
+        for service_name, service_config in self.compose_config.get('services', {}).items():
+            # Check for volume mounts that reference config
+            for volume in service_config.get('volumes', []):
+                if ':' in volume and 'config' in volume:
+                    source = volume.split(':')[0]
+                    if source.startswith('./config/'):
+                        service_dir = self.config_dir / source.replace('./config/', '')
+                        config_status[service_name] = service_dir.exists()
+        
         return config_status
 
     def verify_volumes(self):
-        """Verify all required volumes exist"""
+        """Verify all required volumes exist with improved structure"""
         try:
             volumes = self.compose_config.get('volumes', {}).keys()
             existing_volumes = json.loads(self.run_command("podman volume ls --format json").stdout)
             existing_names = [v['Name'] for v in existing_volumes]
             
-            volume_status = {}
-            for volume in volumes:
-                volume_status[volume] = {
-                    'exists': volume in existing_names,
-                    'details': next((v for v in existing_volumes if v['Name'] == volume), None)
-                }
-            
-            return volume_status
+            return {
+                vol: {
+                    'name': vol,
+                    'exists': vol in existing_names,
+                    'details': next((v for v in existing_volumes if v['Name'] == vol), None),
+                    'size': next((v.get('Size', 'N/A') for v in existing_volumes if v['Name'] == vol), 'N/A')
+                } for vol in volumes
+            }
         except Exception as e:
             console.print(f"[red]Error verifying volumes: {e}[/red]")
             return {}
@@ -233,7 +306,7 @@ class HiveCtl:
         table.add_column("Uptime", style="blue")
 
         for container in containers:
-            name = container['Names'][0].replace('hive_', '')
+            name = container['Names'][0]
             status = container['State']
             health = container.get('Health', {}).get('Status', 'N/A')
             uptime = container['StartedAt']
@@ -247,6 +320,93 @@ class HiveCtl:
 
         console.print(table)
 
+    def display_config_status(self, verify=False):
+        """Display comprehensive configuration status"""
+        tree = Tree("[bold cyan]📁 System Configuration[/bold cyan]")
+
+        # Compose file
+        compose_node = tree.add("📄 compose.yaml")
+        if self.compose_file.exists():
+            compose_node.add("[green]✓ Present[/green]")
+        else:
+            compose_node.add("[red]✗ Missing[/red]")
+
+        # Networks
+        network_node = tree.add("🌐 Networks")
+        network_status = self.verify_networks()
+        for name, status in network_status.items():
+            network_node.add(
+                f"[{'green' if status['exists'] else 'red'}]{'✓' if status['exists'] else '✗'} {name}[/] "
+                f"({'internal' if status['config']['internal'] else 'external'})"
+            )
+
+        # Volumes
+        volume_node = tree.add("📦 Volumes")
+        volume_status = self.verify_volumes()
+        for group, volumes in self.volumes.items():
+            group_node = volume_node.add(f"[blue]{group}[/]")
+            for vol_type, vol_name in volumes.items():
+                exists = vol_name in volume_status and volume_status[vol_name]['exists']
+                group_node.add(f"[{'green' if exists else 'red'}]{'✓' if exists else '✗'} {vol_type}[/]")
+
+        # Config directories
+        config_node = tree.add("⚙️ Service Configs")
+        config_status = self.verify_config_dirs()
+        for service, exists in config_status.items():
+            config_node.add(f"[{'green' if exists else 'red'}]{'✓' if exists else '✗'} {service}[/]")
+
+        console.print(tree)
+
+    def display_health_status(self):
+        """Show health status based on compose services"""
+        table = Table(title="System Health Status")
+        table.add_column("Group", style="cyan")
+        table.add_column("Service", style="blue")
+        table.add_column("Status", style="green")
+        table.add_column("Health", style="yellow")
+        table.add_column("Dependencies", style="magenta")
+
+        services = self.compose_config.get('services', {})
+        for service_name, service_config in services.items():
+            labels = service_config.get('labels', {})
+            group = labels.get('w4b.group', 'other')
+            
+            # Get container status
+            result = self.run_command(f"podman inspect {service_name} --format '{{{{.State.Status}}}}|{{{{.State.Health.Status}}}}|{{{{.State.Health.FailingStreak}}}}'")
+            
+            if result and result.stdout.strip():
+                status, health, failing_streak = result.stdout.strip().split('|')
+                
+                # Get dependency status
+                deps = labels.get('w4b.depends_on', '').split(',')
+                deps_status = []
+                for dep in deps:
+                    if dep:
+                        dep_result = self.run_command(f"podman inspect {dep.strip()} --format '{{{{.State.Status}}}}'")
+                        deps_status.append(f"{dep.strip()}: {'✓' if dep_result and 'running' in dep_result.stdout else '✗'}")
+                
+                # Status styling
+                status_style = "[green]✓ running" if status == "running" else "[red]✗ " + status
+                health_style = {
+                    "healthy": "[green]✓ healthy",
+                    "unhealthy": f"[red]✗ unhealthy ({failing_streak} fails)",
+                    "none": "[yellow]⚠ no health check"
+                }.get(health, "[yellow]⚠ unknown")
+            else:
+                status_style = "[red]✗ not found"
+                health_style = "[red]✗ not running"
+                deps_status = []
+
+            table.add_row(
+                group,
+                service_name,
+                status_style,
+                health_style,
+                ", ".join(deps_status) if deps_status else "none"
+            )
+
+        console.print(table)
+
     def init_volumes(self):
         """Initialize all required volumes"""
         volumes = self.compose_config.get('volumes', {}).keys()
@@ -255,9 +415,13 @@ class HiveCtl:
             task = progress.add_task("[cyan]Creating volumes...", total=len(volumes))
             
             for volume in volumes:
-                result = self.run_command(f"podman volume inspect {volume} 2>/dev/null")
+                # Check if volume exists first
+                result = self.run_command(f"podman volume inspect {volume}", show_output=False)
                 if not result:
-                    self.run_command(f"podman volume create {volume}")
+                    # Create volume if it doesn't exist
+                    create_result = self.run_command(f"podman volume create {volume}", show_output=False)
+                    if not create_result:
+                        console.print(f"[red]Failed to create volume {volume}[/red]")
                 progress.advance(task)
 
     def copy_configs(self):
@@ -299,46 +463,147 @@ class HiveCtl:
                 progress.advance(task)
 
     def display_volume_status(self):
-        """Display volume status in a table"""
+        """Display volume status grouped by service"""
         volume_status = self.verify_volumes()
         
-        table = Table(title="Volume Status")
-        table.add_column("Volume", style="cyan")
+        # Group volumes by service prefix
+        grouped_volumes = {}
+        for vol_name, details in volume_status.items():
+            # Split on underscore and take first two parts (e.g., w4b_service)
+            parts = vol_name.split('_')
+            if len(parts) > 2:
+                service = '_'.join(parts[0:2])
+                vol_type = '_'.join(parts[2:])
+                if service not in grouped_volumes:
+                    grouped_volumes[service] = {}
+                grouped_volumes[service][vol_type] = details
+
+        table = Table(title="Volume Status by Service")
+        table.add_column("Service", style="cyan", no_wrap=True)
+        table.add_column("Type", style="yellow")
+        table.add_column("Volume Name", style="blue")
         table.add_column("Status", style="green")
-        table.add_column("Driver", style="yellow")
-        table.add_column("Mount Point", style="blue")
+        table.add_column("Size", style="magenta")
         
-        for volume, status in volume_status.items():
-            details = status['details'] or {}
-            table.add_row(
-                volume,
-                "[green]✓ Present" if status['exists'] else "[red]✗ Missing",
-                details.get('Driver', 'N/A'),
-                details.get('Mountpoint', 'N/A')
-            )
+        for service, volumes in grouped_volumes.items():
+            first_row = True
+            for vol_type, details in volumes.items():
+                table.add_row(
+                    service if first_row else "",
+                    vol_type,
+                    details['name'],
+                    "[green]✓" if details['exists'] else "[red]✗",
+                    details['size']
+                )
+                first_row = False
         
         console.print(table)
 
     def start_services(self, services=None, force=False):
-        """Enhanced service startup with better error handling"""
+        """Start services with dependency resolution"""
         # Initialize volumes
         self.init_volumes()
+        
+        # Ensure networks exist
+        self.init_networks()
         
         # Clean up if needed
         if force:
             self.run_command("podman-compose down -v")
         
-        # Prepare compose command with environment
-        env = os.environ.copy()
-        env.update(self.env)
-        
-        cmd = f"podman-compose -f {self.compose_file}"
+        # Build command with project name
+        cmd = f"podman-compose -p {self.project_name} -f {self.compose_file}"
         if services:
-            cmd += f" up -d {' '.join(services)}"
+            # Make sure we use full service names from compose file
+            expanded_services = []
+            for service in services:
+                if service in self.service_metadata['groups']:
+                    # If it's a group, get all services in that group
+                    expanded_services.extend(
+                        s.replace('w4b_', '') 
+                        for s in self.service_metadata['groups'][service]['services']
+                    )
+                else:
+                    expanded_services.append(service)
+            
+            cmd += f" up -d {' '.join(expanded_services)}"
         else:
             cmd += " up -d"
         
-        return self.run_command(cmd, env=env)
+        console.print(f"[cyan]Executing: {cmd}[/cyan]")
+        return self.run_command(cmd, env=self.env)
+
+    def init_networks(self):
+        """Initialize required networks"""
+        networks = self.compose_config.get('networks', {})
+        for net_name, net_config in networks.items():
+            # Use explicit network name if defined, otherwise use compose naming convention
+            actual_name = net_config.get('name', f"{self.project_name}_{net_name}")
+            
+            # Check if network exists
+            check = self.run_command(f"podman network inspect {actual_name}", show_output=False)
+            if not check:
+                # Create network with proper configuration
+                cmd = f"podman network create"
+                if net_config.get('internal', False):
+                    cmd += " --internal"
+                if 'ipam' in net_config:
+                    ipam = net_config['ipam']['config'][0]
+                    if 'subnet' in ipam:
+                        cmd += f" --subnet {ipam['subnet']}"
+                    if 'gateway' in ipam:
+                        cmd += f" --gateway {ipam['gateway']}"
+                cmd += f" {actual_name}"
+                
+                console.print(f"[cyan]Creating network: {actual_name}[/cyan]")
+                self.run_command(cmd)
+
+    def logs(self, service):
+        """Get logs for a service"""
+        # Add w4b_ prefix if not present
+        container = f"w4b_{service}" if not service.startswith('w4b_') else service
+        return self.run_command(f"podman logs {container}")
+
+    def display_service_overview(self):
+        """Display service overview from compose metadata"""
+        # Display Groups Table
+        groups_table = Table(title="Service Groups")
+        groups_table.add_column("Group", style="cyan", no_wrap=True)
+        groups_table.add_column("Services", style="yellow")
+        groups_table.add_column("Types", style="green")
+        
+        for group, details in self.service_metadata['groups'].items():
+            groups_table.add_row(
+                group,
+                ", ".join(details['services']),  # Don't modify service names
+                ", ".join(sorted(details['types']))
+            )
+        
+        # Display Services Table
+        services_table = Table(title="Services")
+        services_table.add_column("Service", style="cyan", no_wrap=True)
+        services_table.add_column("Group", style="yellow")
+        services_table.add_column("Type", style="green")
+        services_table.add_column("Description", style="blue")
+        services_table.add_column("Dependencies", style="magenta")
+        
+        for service, details in self.service_metadata['services'].items():
+            deps = details['depends_on']
+            deps_str = ", ".join(deps) if deps else "none"  # Don't modify dependency names
+            
+            services_table.add_row(
+                service,  # Don't modify service name
+                details['group'],
+                details['type'],
+                details['description'],
+                deps_str
+            )
+        
+        console.print("\n")
+        console.print(groups_table)
+        console.print("\n")
+        console.print(services_table)
+        console.print("\n")
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=VERSION)
@@ -347,21 +612,10 @@ def cli(ctx):
     """W4B HiveCtl v{} - Management tool for We4Bee server infrastructure""".format(VERSION)
     
     if ctx.invoked_subcommand is None:
-        # Create a table for service groups
-        table = Table(title=f"W4B HiveCtl v{VERSION} - Service Groups", show_header=True)
-        table.add_column("Group", style="cyan", no_wrap=True)
-        table.add_column("Description", style="green")
-        table.add_column("Containers", style="yellow")
-
-        # Add service groups to table
-        for group, details in SERVICE_GROUPS.items():
-            table.add_row(
-                group.upper(),
-                details['description'],
-                ", ".join(c.replace('w4b_', '') for c in details['containers'])
-            )
-
-        # Print version, table and available commands
+        hive = HiveCtl()
+        hive.display_service_overview()
+        
+        # Show available commands
         console.print("\n[bold cyan]Available Commands:[/bold cyan]")
         console.print("  status     - Show service status")
         console.print("  start      - Start services")
@@ -373,8 +627,6 @@ def cli(ctx):
         console.print("  networks   - Show network information")
         console.print("  volumes    - List volumes")
         console.print("  config     - Show configuration status")
-        console.print("\nService Groups:")
-        console.print(table)
         console.print("\nUse [cyan]hivectl COMMAND --help[/cyan] for more information about a command.")
 
 @cli.command()
@@ -437,6 +689,28 @@ def status(service):
 def start(services, force):
     """Start services"""
     hive = HiveCtl()
+    metadata = hive.service_metadata
+    
+    # Validate services
+    invalid_services = []
+    for service in services:
+        if service not in metadata['groups'] and \
+           service not in metadata['services'] and \
+           f"w4b_{service}" not in metadata['services']:
+            invalid_services.append(service)
+    
+    if invalid_services:
+        console.print("[yellow]Invalid service or group names:[/yellow]")
+        for invalid in invalid_services:
+            console.print(f"  - {invalid}")
+        console.print("\n[cyan]Available options:[/cyan]")
+        console.print("Groups:")
+        for group in sorted(metadata['groups']):
+            console.print(f"  - {group}")
+        console.print("\nServices:")
+        for service in sorted(metadata['services']):
+            console.print(f"  - {service}")
+        return
     
     # Use the new start_services method
     if hive.start_services(services, force):
@@ -511,83 +785,7 @@ def logs(service, lines, follow):
 def health():
     """Show health status of all services"""
     hive = HiveCtl()
-    
-    table = Table(title="System Health Status")
-    table.add_column("Service Group", style="cyan")
-    table.add_column("Container", style="blue")
-    table.add_column("Status", style="green")
-    table.add_column("Health", style="yellow")
-    table.add_column("Response Time", style="magenta")
-    
-    # Suppress the error output for container inspection
-    with console.status("[cyan]Checking system health...[/cyan]", spinner="dots"):
-        for group, details in SERVICE_GROUPS.items():
-            first_row = True
-            for container in details['containers']:
-                # Get container status without showing errors
-                result = subprocess.run(
-                    f"podman inspect {container} --format '{{{{.State.Status}}}}|{{{{.State.Health.Status}}}}|{{{{.State.Health.FailingStreak}}}}'",
-                    shell=True,
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0 and result.stdout.strip():
-                    status, health, failing_streak = result.stdout.strip().split('|')
-                    
-                    # Get response time for web services
-                    response_time = "N/A"
-                    if container in ['w4b_api', 'w4b_keycloak', 'w4b_grafana']:
-                        try:
-                            curl_result = subprocess.run(
-                                f"curl -sI -w '%{{time_total}}' -o /dev/null localhost:{container_ports.get(container, '80')}",
-                                shell=True,
-                                capture_output=True,
-                                text=True
-                            )
-                            if curl_result.returncode == 0:
-                                response_time = f"{float(curl_result.stdout):.2f}s"
-                        except:
-                            pass
-                    
-                    # Status styling
-                    status_style = "[green]✓ running" if status == "running" else "[red]✗ " + status
-                    health_style = {
-                        "healthy": "[green]✓ healthy",
-                        "unhealthy": f"[red]✗ unhealthy ({failing_streak} fails)",
-                        "none": "[yellow]⚠ no health check"
-                    }.get(health, "[yellow]⚠ unknown")
-                else:
-                    status_style = "[red]✗ not found"
-                    health_style = "[red]✗ not running"
-                    response_time = "N/A"
-                
-                table.add_row(
-                    group.title() if first_row else "",
-                    container.replace('w4b_', ''),
-                    status_style,
-                    health_style,
-                    response_time
-                )
-                first_row = False
-    
-    console.print(table)
-    
-    # Check overall system health using the table content
-    try:
-        unhealthy = False
-        for row in table.rows:
-            if "[red]" in str(row.cells[2]):  # Check Status column
-                unhealthy = True
-                break
-        
-        if unhealthy:
-            console.print("\n[red]System is degraded - some services are unhealthy[/red]")
-        else:
-            console.print("\n[green]System is healthy - all services are running normally[/green]")
-    except Exception:
-        # Fail silently if we can't determine overall health
-        pass
+    hive.display_health_status()
 
 @cli.command()
 @click.option('--service', help='Update specific service')
@@ -686,42 +884,29 @@ def stats(full):
 def networks():
     """Show network information"""
     hive = HiveCtl()
-    result = hive.run_command("podman network ls --format json")
+    network_status = hive.verify_networks()
     
-    if not result or not result.stdout.strip():
-        console.print("[yellow]No networks found[/yellow]")
-        return
+    table = Table(title="Network Configuration")
+    table.add_column("Name", style="cyan")
+    table.add_column("Type", style="yellow")
+    table.add_column("Subnet", style="green")
+    table.add_column("Gateway", style="blue")
+    table.add_column("Status", style="magenta")
     
-    try:
-        networks = json.loads(result.stdout)
-        if not networks:
-            console.print("[yellow]No networks found[/yellow]")
-            return
-            
-        table = Table(title="Network Configuration")
-        table.add_column("Name", style="cyan")
-        table.add_column("Driver", style="green")
-        table.add_column("Subnet", style="yellow")
-        table.add_column("Gateway", style="blue")
+    for name, status in network_status.items():
+        config = status['config']
+        details = status['details'] or {}
+        ipam = config.get('ipam', {}).get('config', [{}])[0]
         
-        # Handle both list and single object responses
-        networks = networks if isinstance(networks, list) else [networks]
-        
-        for net in networks:
-            try:
-                name = net.get('Name', net.get('name', 'N/A'))
-                driver = net.get('Driver', net.get('driver', 'N/A'))
-                subnet = net.get('Subnet', net.get('subnet', 'N/A'))
-                gateway = net.get('Gateway', net.get('gateway', 'N/A'))
-                
-                table.add_row(name, driver, subnet, gateway)
-            except (KeyError, AttributeError) as e:
-                console.print(f"[red]Error processing network entry: {e}[/red]")
-                continue
-        
-        console.print(table)
-    except json.JSONDecodeError as e:
-        console.print(f"[red]Error parsing network information: {e}[/red]")
+        table.add_row(
+            name,
+            "Internal" if config['internal'] else "External",
+            ipam.get('subnet', 'N/A'),
+            ipam.get('gateway', 'N/A'),
+            "[green]✓ Active" if status['exists'] else "[red]✗ Missing"
+        )
+    
+    console.print(table)
 
 @cli.command()
 def volumes():
@@ -734,50 +919,7 @@ def volumes():
 def config(verify):
     """Show and verify configuration status"""
     hive = HiveCtl()
-    
-    # Show configuration tree
-    tree = Tree("📁 Configuration")
-    
-    # Add compose file
-    compose_node = tree.add("📄 compose.yaml")
-    if hive.compose_file.exists():
-        compose_node.add("[green]✓ Present")
-    else:
-        compose_node.add("[red]✗ Missing")
-
-    # Add config directories
-    config_node = tree.add("📁 config")
-    config_status = hive.verify_config_dirs()
-    for service, status in config_status.items():
-        if status:
-            config_node.add(f"[green]✓ {service}")
-        else:
-            config_node.add(f"[red]✗ {service}")
-
-    # Add volumes status
-    volume_node = tree.add("📦 Volumes")
-    volume_status = hive.verify_volumes()
-    for volume, status in volume_status.items():
-        if status['exists']:
-            volume_node.add(f"[green]✓ {volume}")
-        else:
-            volume_node.add(f"[red]✗ {volume}")
-
-    console.print(tree)
-
-    if verify:
-        # Perform deeper configuration verification
-        console.print("\n[yellow]Verifying configurations...[/yellow]")
-        for service, status in config_status.items():
-            if status:
-                config_file = hive.config_dir / service / f"{service}.yml"
-                if config_file.exists():
-                    try:
-                        with open(config_file) as f:
-                            yaml.safe_load(f)
-                        console.print(f"[green]✓ {service} configuration is valid")
-                    except yaml.YAMLError as e:
-                        console.print(f"[red]✗ {service} configuration is invalid: {e}")
+    hive.display_config_status(verify)
 
 @cli.command()
 @click.argument('service')
@@ -821,7 +963,14 @@ def init(force):
     
     if force:
         console.print("[yellow]Forcing recreation of volumes...[/yellow]")
-        hive.run_command("podman volume rm $(podman volume ls -q)")
+        # Get list of existing volumes first
+        result = hive.run_command("podman volume ls -q")
+        if result and result.stdout.strip():
+            volumes = result.stdout.strip().split('\n')
+            # Remove each volume individually to avoid the "choose" error
+            for volume in volumes:
+                if volume.startswith('w4b_'):
+                    hive.run_command(f"podman volume rm {volume}")
     
     hive.init_volumes()
     
@@ -862,6 +1011,50 @@ scrape_configs:
     
     hive.copy_configs()
     console.print("[green]Initialization complete[/green]")
+
+@cli.command()
+@click.argument('group_or_service')
+def info(group_or_service):
+    """Show detailed information about a service group or service"""
+    hive = HiveCtl()
+    metadata = hive.service_metadata
+    
+    # Check if it's a group
+    if group_or_service in metadata['groups']:
+        group = group_or_service
+        details = metadata['groups'][group]
+        
+        console.print(f"\n[bold cyan]Group: {group}[/bold cyan]")
+        console.print(f"Types: {', '.join(sorted(details['types']))}")
+        console.print("\nServices:")
+        
+        for service in sorted(details['services']):
+            service_details = metadata['services'][service]
+            console.print(f"\n  [yellow]{service}[/yellow]")  # Don't modify service name
+            console.print(f"  Description: {service_details['description']}")
+            console.print(f"  Type: {service_details['type']}")
+            if service_details['depends_on']:
+                console.print(f"  Depends on: {', '.join(service_details['depends_on'])}")  # Don't modify dependency names
+            if service_details['required_by']:
+                console.print(f"  Required by: {', '.join(service_details['required_by'])}")  # Don't modify required_by names
+    
+    # Check if it's a service
+    elif f"w4b_{group_or_service}" in metadata['services']:
+        service = f"w4b_{group_or_service}"
+        details = metadata['services'][service]
+        
+        console.print(f"\n[bold cyan]Service: {service}[/bold cyan]")  # Don't modify service name
+        console.print(f"Group: {details['group']}")
+        console.print(f"Type: {details['type']}")
+        console.print(f"Description: {details['description']}")
+        console.print(f"Priority: {details['priority']}")
+        if details['depends_on']:
+            console.print(f"Depends on: {', '.join(details['depends_on'])}")  # Don't modify dependency names
+        if details['required_by']:
+            console.print(f"Required by: {', '.join(details['required_by'])}")  # Don't modify required_by names
+    
+    else:
+        console.print(f"[red]Error: '{group_or_service}' not found in groups or services[/red]")
 
 if __name__ == '__main__':
     cli()
