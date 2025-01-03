@@ -23,11 +23,11 @@ logger = logging.getLogger('hivectl.container')
 class ContainerStatus:
     """Container status information."""
     name: str
-    state: str
-    health: str
-    uptime: str
-    memory_usage: str
-    cpu_usage: str
+    state: str = "not_found"
+    health: str = "N/A"
+    uptime: str = "N/A"
+    memory_usage: str = "N/A"
+    cpu_usage: str = "N/A"
 
 @dataclass
 class HealthCheckResult:
@@ -52,98 +52,83 @@ class ContainerManager:
         self.base_delay = 1  # Base delay for exponential backoff
 
     def get_container_status(self, service_name: Optional[str] = None) -> List[ContainerStatus]:
-        """
-        Get status of one or all containers.
-        
-        Args:
-            service_name: Specific service to check, or None for all
-            
-        Returns:
-            List of ContainerStatus objects
-        """
-        cmd = "podman ps --format json"
-        if service_name:
-            cmd += f" --filter name={service_name}"
-            
+        """Get status of one or all containers."""
         try:
+            cmd = "podman ps --format json"
+            if service_name:
+                cmd += f" --filter name={service_name}"
+            
             result = run_command(cmd)
-            containers = json.loads(result.stdout)
-            if not isinstance(containers, list):
-                containers = [containers]
-                
-            return [
-                ContainerStatus(
-                    name=c['Names'][0],
-                    state=c['State'],
-                    health=c.get('Health', {}).get('Status', 'N/A'),
-                    uptime=c['StartedAt'],
-                    memory_usage=c.get('MemUsage', 'N/A'),
-                    cpu_usage=c.get('CPUUsage', 'N/A')
-                )
-                for c in containers
-            ]
-        except Exception as e:
-            logger.error(f"Failed to get container status: {e}")
-            raise ContainerError(f"Failed to get container status: {e}")
-
-    def check_container_health(self, service_name: str) -> HealthCheckResult:
-        """
-        Check health of a container with exponential backoff.
-        
-        Args:
-            service_name: Name of the service to check
-            
-        Returns:
-            HealthCheckResult object
-        """
-        service_config = self.compose.services.get(service_name)
-        if not service_config:
-            raise ContainerNotFound(f"Service {service_name} not found")
-            
-        health_config = service_config.get('health_config')
-        if not health_config:
-            # No health check configured, consider it healthy
-            return HealthCheckResult(True, "No health check configured", 0, time.time())
-            
-        retries = 0
-        while retries < self.max_retries:
-            delay = self.base_delay * (2 ** retries)  # Exponential backoff
             
             try:
-                result = run_command(
-                    f"podman inspect --format '{{{{.State.Health}}}}' {service_name}"
-                )
-                
-                health_data = json.loads(result.stdout)
-                status = health_data.get('Status', 'unknown')
-                failing_streak = health_data.get('FailingStreak', 0)
-                
-                if status == 'healthy':
-                    return HealthCheckResult(
-                        True,
-                        "Container is healthy",
-                        failing_streak,
-                        time.time()
+                containers = json.loads(result.stdout)
+                if not isinstance(containers, list):
+                    containers = [containers] if containers else []
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse container list output: {result.stdout}")
+                return []
+
+            # If looking for specific service and not found, return empty status
+            if service_name and not containers:
+                return [ContainerStatus(name=service_name)]
+
+            status_list = []
+            for c in containers:
+                try:
+                    status = ContainerStatus(
+                        name=c['Names'][0],
+                        state=c['State'],
+                        health=c.get('Health', {}).get('Status', 'N/A'),
+                        uptime=c['StartedAt'],
+                        memory_usage=c.get('MemUsage', 'N/A'),
+                        cpu_usage=c.get('CPUUsage', 'N/A')
                     )
-                elif status == 'starting':
-                    logger.info(f"Container {service_name} is starting, waiting {delay}s...")
-                    time.sleep(delay)
-                    retries += 1
-                    continue
-                else:
-                    return HealthCheckResult(
-                        False,
-                        f"Container health check failed: {status}",
-                        failing_streak,
-                        time.time()
-                    )
-                    
-            except Exception as e:
-                logger.warning(f"Health check attempt {retries + 1} failed: {e}")
-                time.sleep(delay)
-                retries += 1
-                
-        raise HealthCheckTimeout(service_name, self.base_delay * (2 ** self.max_retries))
+                    status_list.append(status)
+                except Exception as e:
+                    logger.warning(f"Failed to parse container status: {e}")
+                    status_list.append(ContainerStatus(name=c.get('Names', ['unknown'])[0]))
+
+            return status_list
+
+        except Exception as e:
+            logger.error(f"Failed to get container status: {e}")
+            if service_name:
+                return [ContainerStatus(name=service_name)]
+            return []
+
+    def check_container_health(self, service_name: str) -> Optional[Dict]:
+        """Check container health with retries."""
+        try:
+            # Check if container exists first
+            status = self.get_container_status(service_name)
+            if not status or status[0].state == "not_found":
+                logger.debug(f"Container {service_name} not found, skipping health check")
+                return {
+                    'Status': 'not_found',
+                    'FailingStreak': 0,
+                    'Message': 'Container not found'
+                }
+
+            cmd = f"podman inspect --format '{{{{.State.Health}}}}' {service_name}"
+            result = run_command(cmd)
+            
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse health check output: {result.stdout}")
+                return {
+                    'Status': 'unknown',
+                    'FailingStreak': 0,
+                    'Message': 'Failed to parse health data'
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to check container health: {e}")
+            return {
+                'Status': 'error',
+                'FailingStreak': 0,
+                'Message': str(e)
+            }
 
     def start_containers(self, services: Optional[List[str]] = None, force: bool = False) -> bool:
         """
@@ -238,23 +223,25 @@ class ContainerManager:
             logger.error(f"Failed to get container logs: {e}")
             raise ContainerOperationError(f"Failed to get logs: {e}")
 
-    def get_container_stats(self, service_name: Optional[str] = None) -> Dict:
-        """
-        Get container statistics.
-        
-        Args:
-            service_name: Specific service to check, or None for all
-            
-        Returns:
-            dict: Container statistics
-        """
-        cmd = "podman stats --no-stream --format json"
-        if service_name:
-            cmd += f" {service_name}"
-            
+    def get_container_stats(self, service_name: str) -> Optional[Dict]:
+        """Get container statistics."""
         try:
+            # Check if container exists first
+            status = self.get_container_status(service_name)
+            if not status or status[0].state == "not_found":
+                logger.debug(f"Container {service_name} not found, skipping stats")
+                return None
+
+            cmd = f"podman stats --no-stream --format json {service_name}"
             result = run_command(cmd)
-            return json.loads(result.stdout)
+            
+            try:
+                stats = json.loads(result.stdout)
+                return stats[0] if isinstance(stats, list) and stats else None
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse container stats output: {result.stdout}")
+                return None
+
         except Exception as e:
             logger.error(f"Failed to get container stats: {e}")
-            raise ContainerOperationError(f"Failed to get container stats: {e}")
+            return None

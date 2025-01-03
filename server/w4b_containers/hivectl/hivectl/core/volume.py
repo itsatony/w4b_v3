@@ -4,17 +4,11 @@ Volume management functionality for HiveCtl.
 """
 import json
 import logging
-import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
-from .exceptions import (
-    VolumeError,
-    VolumeNotFound,
-    VolumeOperationError,
-    CommandError
-)
+from .exceptions import VolumeError, VolumeNotFound, VolumeOperationError
 from .utils import run_command
 
 logger = logging.getLogger('hivectl.volume')
@@ -28,6 +22,9 @@ class VolumeStatus:
     size: str
     created: str
     labels: Dict[str, str]
+
+    def to_dict(self):
+        return asdict(self)
 
 class VolumeManager:
     """Manages container volume operations."""
@@ -43,54 +40,64 @@ class VolumeManager:
         self._tmp_dir = None
 
     def get_volume_status(self, volume_name: Optional[str] = None) -> List[VolumeStatus]:
-        """
-        Get status of volumes.
-        
-        Args:
-            volume_name: Specific volume to check, or None for all
-            
-        Returns:
-            List of VolumeStatus objects
-        """
+        """Get status of volumes."""
         try:
             cmd = "podman volume ls --format json"
             result = run_command(cmd)
-            volumes = json.loads(result.stdout)
             
-            if not isinstance(volumes, list):
-                volumes = [volumes]
-                
+            try:
+                volumes = json.loads(result.stdout)
+                if not isinstance(volumes, list):
+                    volumes = [volumes]
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse volume list output: {result.stdout}")
+                return []
+
             status_list = []
             for vol in volumes:
                 if volume_name and vol['Name'] != volume_name:
                     continue
-                    
-                # Get detailed volume info
-                detail_cmd = f"podman volume inspect {vol['Name']}"
-                detail_result = run_command(detail_cmd)
-                details = json.loads(detail_result.stdout)[0]
                 
-                # Get volume size if possible
-                size = "N/A"
                 try:
-                    if details['Mountpoint']:
-                        du_cmd = f"du -sh {details['Mountpoint']}"
-                        du_result = run_command(du_cmd)
-                        size = du_result.stdout.split()[0]
-                except:
-                    pass
-                
-                status_list.append(VolumeStatus(
-                    name=vol['Name'],
-                    driver=vol['Driver'],
-                    mountpoint=details.get('Mountpoint', ''),
-                    size=size,
-                    created=details.get('CreatedAt', 'N/A'),
-                    labels=details.get('Labels', {})
-                ))
-                
+                    # Get detailed volume info
+                    detail_cmd = f"podman volume inspect {vol['Name']}"
+                    detail_result = run_command(detail_cmd)
+                    details = json.loads(detail_result.stdout)[0]
+
+                    # Get volume size if possible
+                    size = "N/A"
+                    try:
+                        if details['Mountpoint']:
+                            du_cmd = f"du -sh {details['Mountpoint']}"
+                            du_result = run_command(du_cmd)
+                            size = du_result.stdout.split()[0]
+                    except:
+                        pass
+
+                    status = VolumeStatus(
+                        name=vol['Name'],
+                        driver=details.get('Driver', 'local'),
+                        mountpoint=details.get('Mountpoint', ''),
+                        size=size,
+                        created=details.get('CreatedAt', 'N/A'),
+                        labels=details.get('Labels', {})
+                    )
+                    status_list.append(status)
+                except Exception as e:
+                    logger.warning(f"Failed to get details for volume {vol['Name']}: {e}")
+                    # Add basic volume info even if details fail
+                    status = VolumeStatus(
+                        name=vol['Name'],
+                        driver='local',
+                        mountpoint='',
+                        size='N/A',
+                        created='N/A',
+                        labels={}
+                    )
+                    status_list.append(status)
+
             return status_list
-            
+
         except Exception as e:
             logger.error(f"Failed to get volume status: {e}")
             raise VolumeError(f"Failed to get volume status: {e}")
@@ -162,30 +169,39 @@ class VolumeManager:
         return success
 
     def validate_volumes(self) -> Dict[str, dict]:
-        """
-        Validate all required volumes exist.
-        
-        Returns:
-            dict: Validation results by volume
-        """
+        """Validate all required volumes exist."""
         validation = {}
-        existing_volumes = self.get_volume_status()
-        existing_names = {vol.name for vol in existing_volumes}
-        
-        for service, volumes in self.compose.volumes.items():
-            service_volumes = {}
-            for vol_type, vol_config in volumes.items():
-                volume_name = vol_config['name']
-                service_volumes[vol_type] = {
-                    'name': volume_name,
-                    'exists': volume_name in existing_names,
-                    'details': next(
+        try:
+            existing_volumes = self.get_volume_status()
+            existing_names = {vol.name for vol in existing_volumes}
+            
+            for service, volumes in self.compose.volumes.items():
+                service_volumes = {}
+                for vol_type, vol_config in volumes.items():
+                    volume_name = vol_config['name']
+                    volume_details = next(
                         (v for v in existing_volumes if v.name == volume_name),
                         None
                     )
+                    
+                    service_volumes[vol_type] = {
+                        'name': volume_name,
+                        'exists': volume_name in existing_names,
+                        'details': volume_details.to_dict() if volume_details else None
+                    }
+                validation[service] = service_volumes
+        except Exception as e:
+            logger.error(f"Failed to validate volumes: {e}")
+            # Return empty validation result rather than failing
+            for service, volumes in self.compose.volumes.items():
+                validation[service] = {
+                    vol_type: {
+                        'name': vol_config['name'],
+                        'exists': False,
+                        'details': None
+                    } for vol_type, vol_config in volumes.items()
                 }
-            validation[service] = service_volumes
-            
+
         return validation
 
     def backup_volume(self, volume_name: str, backup_path: Path) -> bool:

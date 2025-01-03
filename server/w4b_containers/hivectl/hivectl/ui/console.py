@@ -130,7 +130,7 @@ class ConsoleUI:
         color = colors.get(health.lower(), 'white')
         return f"[{color}]{health}[/{color}]"
 
-    def display_network_status(self, networks: List[dict]):
+    def display_network_status(self, networks: List[Dict]):
         """Display network status information."""
         table = Table(title="Network Status", show_header=True, header_style="bold magenta")
         table.add_column("Network", style="cyan")
@@ -141,13 +141,17 @@ class ConsoleUI:
         table.add_column("Connected", style="red")
         
         for network in sorted(networks, key=lambda n: n['name']):
+            ipam_config = network.get('ipam_config', {})
+            subnet = ipam_config.get('Subnet', 'N/A')
+            containers = network.get('containers', [])
+            
             table.add_row(
                 network['name'],
                 network['driver'],
                 network['scope'],
                 '✓' if network['internal'] else '✗',
-                network['ipam_config'].get('Subnet', 'N/A'),
-                str(len(network['containers']))
+                subnet,
+                str(len(containers))
             )
         
         self.console.print(table)
@@ -190,26 +194,29 @@ class ConsoleUI:
         
         # Compose File
         compose = tree.add("📄 compose.yaml")
-        if config_status['compose_exists']:
+        if config_status.get('compose_exists', False):
             compose.add("[green]✓ Present[/green]")
         else:
             compose.add("[red]✗ Missing[/red]")
         
         # Networks
         networks = tree.add("🌐 Networks")
-        for name, status in config_status['networks'].items():
+        for name, status in config_status.get('networks', {}).items():
+            is_internal = status.get('config', {}).get('internal', False)
+            exists = status.get('exists', False)
             networks.add(
-                f"[{'green' if status['exists'] else 'red'}]{'✓' if status['exists'] else '✗'} "
-                f"{name}[/] ({'internal' if status['internal'] else 'external'})"
+                f"[{'green' if exists else 'red'}]{'✓' if exists else '✗'} "
+                f"{name}[/] ({'internal' if is_internal else 'external'})"
             )
         
         # Volumes
         volumes = tree.add("📦 Volumes")
-        for service, service_volumes in config_status['volumes'].items():
+        for service, service_volumes in config_status.get('volumes', {}).items():
             service_node = volumes.add(f"[blue]{service}[/]")
             for vol_type, details in service_volumes.items():
+                exists = details.get('exists', False)
                 service_node.add(
-                    f"[{'green' if details['exists'] else 'red'}]{'✓' if details['exists'] else '✗'} "
+                    f"[{'green' if exists else 'red'}]{'✓' if exists else '✗'} "
                     f"{vol_type}[/]"
                 )
         
