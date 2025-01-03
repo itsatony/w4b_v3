@@ -11,12 +11,6 @@ from typing import Optional, List
 
 import click
 from rich.console import Console
-from rich.table import Table
-
-from rich.console import Console, Group, Text
-from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress
 
 from hivectl.core.compose import ComposeConfig
 from hivectl.core.container import ContainerManager
@@ -37,8 +31,8 @@ class HiveCtl:
         """Initialize HiveCtl with all required managers."""
         try:
             self.compose = ComposeConfig()
+            self.container = ContainerManager(self.compose)
             self.network = NetworkManager(self.compose)
-            self.container = ContainerManager(self.compose, self.network)
             self.volume = VolumeManager(self.compose)
         except ComposeFileNotFound:
             ui.print_error(ComposeFileNotFound())
@@ -76,8 +70,8 @@ def cli(ctx, debug):
                 hive.compose.groups,
                 hive.compose.services
             )
-            # Show available commands with improved formatting
-            ui.display_commands(COMMANDS)
+            # Show available commands
+            ui.display_help(COMMANDS)
         except Exception as e:
             ui.print_error(e)
             sys.exit(1)
@@ -321,170 +315,19 @@ def clear_logs():
         ui.print_error(e)
         sys.exit(1)
 
-@cli.group()
-def network():
-    """Network management commands."""
-    pass
-
-@network.command(name='list')
-def network_list():
-    """List all networks and their status."""
-    hive = get_hivectl()
-    try:
-        networks = hive.network.list_networks()
-        
-        table = Table(title="Network Status")
-        table.add_column("Network", style="cyan")
-        table.add_column("Status", style="green")
-        table.add_column("Subnet", style="yellow")
-        table.add_column("Internal", style="blue")
-        table.add_column("Containers", style="magenta")
-        
-        for net in networks:
-            status = "[green]✓" if net['exists'] else "[red]✗"
-            internal = "Yes" if net.get('internal', False) else "No"
-            containers = len(net.get('containers', []))
-            
-            table.add_row(
-                net['name'],
-                status,
-                net.get('subnet', 'N/A'),
-                internal,
-                str(containers)
-            )
-        
-        console.print(table)
-            
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-@network.command()
-@click.option('--force', is_flag=True, help='Force removal of all networks')
-def cleanup(force):
-    """Clean up unused or all networks."""
-    hive = get_hivectl()
-    try:
-        if force and not click.confirm("This will remove ALL networks. Continue?"):
-            return
-            
-        count, removed = hive.network.cleanup_networks(force)
-        
-        if count > 0:
-            table = Table(title=f"Removed {count} Networks")
-            table.add_column("Network Name", style="cyan")
-            
-            for name in removed:
-                table.add_row(name)
-            
-            console.print(table)
-        else:
-            console.print("[yellow]No networks were removed[/yellow]")
-            
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-@network.command()
-def diagnose():
-    """Run network diagnostics."""
-    hive = get_hivectl()
-    try:
-        diagnostics = hive.network.diagnose_networks()
-        
-        for diag in diagnostics:
-            panel = Panel(
-                Group(
-                    Text(f"Status: {diag.state}", style="bold green" if diag.state == "healthy" else "bold red"),
-                    Text("\nIssues:", style="yellow") if diag.issues else Text(""),
-                    *[Text(f"• {issue}", style="red") for issue in diag.issues],
-                    Text("\nRecommendations:", style="blue") if diag.recommendations else Text(""),
-                    *[Text(f"• {rec}", style="green") for rec in diag.recommendations]
-                ),
-                title=f"[cyan]{diag.name}[/cyan]",
-                border_style="cyan"
-            )
-            console.print(panel)
-            console.print()
-            
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-@network.command()
-@click.option('--force', is_flag=True, help='Force recreation of networks')
-def create(force):
-    """Create required networks."""
-    hive = get_hivectl()
-    try:
-        with Progress() as progress:
-            task = progress.add_task("Creating networks...", total=1)
-            
-            if hive.network.ensure_networks(force):
-                progress.update(task, completed=1)
-                console.print("[green]Networks created successfully[/green]")
-            else:
-                progress.update(task, completed=1)
-                console.print("[yellow]Some networks could not be created[/yellow]")
-                console.print("Run [cyan]hivectl network diagnose[/cyan] for details")
-                
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-@network.command()
-def prune():
-    """Remove unused networks."""
-    hive = get_hivectl()
-    try:
-        count, removed = hive.network.cleanup_networks(force=False)
-        
-        if count > 0:
-            table = Table(title=f"Removed {count} Unused Networks")
-            table.add_column("Network Name", style="cyan")
-            
-            for name in removed:
-                table.add_row(name)
-            
-            console.print(table)
-        else:
-            console.print("[green]No unused networks found[/green]")
-            
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-# /hivectl/hivectl/hivectl.py
-
 # Command descriptions for help display
 COMMANDS = {
-    # Service Management
     'status': 'Show service status',
     'start': 'Start services',
     'stop': 'Stop services',
     'restart': 'Restart services',
     'health': 'Show health status',
     'logs': 'Show service logs',
-    'inspect': 'Inspect a service',
-    
-    # Network Management
-    'network': {
-        'description': 'Network management commands',
-        'subcommands': {
-            'list': 'List all networks and their status',
-            'cleanup': 'Clean up unused or all networks',
-            'diagnose': 'Run network diagnostics',
-            'create': 'Create required networks',
-            'prune': 'Remove unused networks'
-        }
-    },
-    
-    # Resource Management
+    'networks': 'Show network information',
     'volumes': 'Show volume information',
-    'stats': 'Show resource usage statistics',
-    
-    # Configuration and System
     'config': 'Show configuration status',
+    'stats': 'Show resource usage statistics',
+    'inspect': 'Inspect a service',
     'show-logs': 'Show HiveCtl logs',
     'clear-logs': 'Clear HiveCtl logs'
 }

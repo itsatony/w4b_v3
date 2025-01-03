@@ -4,6 +4,7 @@ Volume management functionality for HiveCtl.
 """
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict

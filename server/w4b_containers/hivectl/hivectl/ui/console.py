@@ -6,7 +6,7 @@ import sys
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from rich.console import Console
+from rich.console import Console, Group, Text
 from rich.table import Table
 from rich.panel import Panel
 from rich.tree import Tree
@@ -23,6 +23,31 @@ class ConsoleUI:
 
     def __init__(self):
         self.console = console
+
+    def display_commands(self, commands: Dict):
+        """Display available commands with improved formatting."""
+        table = Table(title="Available Commands")
+        table.add_column("Command", style="cyan", no_wrap=True)
+        table.add_column("Description", style="green")
+        
+        for cmd, details in sorted(commands.items()):
+            if isinstance(details, dict):
+                table.add_row(
+                    cmd,
+                    details['description']
+                )
+                # Add subcommands
+                if 'subcommands' in details:
+                    for subcmd, subdesc in details['subcommands'].items():
+                        table.add_row(
+                            f"  {cmd} {subcmd}",
+                            subdesc
+                        )
+            else:
+                table.add_row(cmd, details)
+        
+        self.console.print(table)
+        self.console.print("\n[cyan]Use 'hivectl COMMAND --help' for more information about a command.[/cyan]")
 
     def print_error(self, error: Exception, show_traceback: bool = False):
         """
@@ -317,3 +342,64 @@ class ConsoleUI:
         
         self.console.print(table)
         self.console.print("\n[cyan]Use 'hivectl COMMAND --help' for more information about a command.[/cyan]")
+
+    def display_network_list(self, networks: List[Dict]):
+        """Display network list with details."""
+        table = Table(title="Network Status")
+        table.add_column("Network", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Subnet", style="yellow")
+        table.add_column("Internal", style="blue")
+        table.add_column("Containers", style="magenta", justify="right")
+        
+        for net in sorted(networks, key=lambda n: n['name']):
+            status = "[green]✓" if net['exists'] else "[red]✗"
+            internal = "Yes" if net.get('internal', False) else "No"
+            containers = len(net.get('containers', []))
+            
+            table.add_row(
+                net['name'],
+                status,
+                net.get('subnet', 'N/A'),
+                internal,
+                str(containers)
+            )
+        
+        self.console.print(table)
+
+    def display_network_diagnostics(self, diagnostics: List[Dict]):
+        """Display network diagnostic results."""
+        for diag in diagnostics:
+            panel = Panel(
+                Group(
+                    Text(f"Status: {diag['state']}", 
+                         style="bold green" if diag['state'] == "healthy" else "bold red"),
+                    Text("\nIssues:", style="yellow") if diag['issues'] else Text(""),
+                    *[Text(f"• {issue}", style="red") for issue in diag['issues']],
+                    Text("\nRecommendations:", style="blue") if diag['recommendations'] else Text(""),
+                    *[Text(f"• {rec}", style="green") for rec in diag['recommendations']]
+                ),
+                title=f"[cyan]{diag['name']}[/cyan]",
+                border_style="cyan"
+            )
+            self.console.print(panel)
+            self.console.print()
+
+    def display_network_cleanup(self, count: int, removed: List[Dict[str, str]]):
+        """Display network cleanup results."""
+        if count > 0:
+            table = Table(title=f"Removed {count} Networks", show_header=True)
+            table.add_column("Network Name", style="cyan")
+            table.add_column("Subnet", style="yellow")
+            table.add_column("Containers", style="magenta", justify="right")
+            
+            for network in removed:
+                table.add_row(
+                    network['name'],
+                    network['subnet'],
+                    str(network['containers'])
+                )
+            
+            self.console.print(table)
+        else:
+            self.console.print("[yellow]No networks were removed[/yellow]")

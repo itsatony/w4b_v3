@@ -1,0 +1,22 @@
+# /hivectl/config/networks.yaml
+# Network configuration for HiveCtl
+---
+# Alternative subnet ranges to try if primary subnets are in use
+alternative_ranges:
+  - subnet: "172.24.0.0/16"
+    mask: 24
+  - subnet: "172.25.0.0/16"
+    mask: 24
+  - subnet: "172.26.0.0/16"
+    mask: 24
+
+# Network creation retry configuration
+retry_attempts: 3    # Number of attempts to create a network
+retry_delay: 2      # Seconds to wait between retries
+cleanup_delay: 1    # Seconds to wait after cleanup before creation
+
+# Network validation settings
+validation:
+  check_connectivity: true     # Test network connectivity after creation
+  check_dns: true             # Verify DNS resolution
+  connectivity_timeout: 5      # Timeout for connectivity checks (seconds)

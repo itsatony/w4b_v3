@@ -40,16 +40,16 @@ class HealthCheckResult:
 class ContainerManager:
     """Manages container operations and health checks."""
     
-    def __init__(self, compose_config):
-        """
-        Initialize container manager.
-        
-        Args:
-            compose_config: Parsed compose configuration
-        """
+    def __init__(self, compose_config, network_manager=None):
+        """Initialize container manager."""
         self.compose = compose_config
         self.max_retries = 5
-        self.base_delay = 1  # Base delay for exponential backoff
+        self.base_delay = 1
+        # Allow network manager to be injected or create new one
+        if network_manager is None:
+            from .network import NetworkManager
+            network_manager = NetworkManager(compose_config)
+        self.network_manager = network_manager
 
     def get_container_status(self, service_name: Optional[str] = None) -> List[ContainerStatus]:
         """Get status of one or all containers."""
@@ -131,17 +131,24 @@ class ContainerManager:
             }
 
     def start_containers(self, services: Optional[List[str]] = None, force: bool = False) -> bool:
-        """
-        Start containers with basic dependency resolution.
-        
-        Args:
-            services: List of services to start, or None for all
-            force: Whether to force recreation of containers
-            
-        Returns:
-            bool: Success status
-        """
+        """Start containers with dependency resolution."""
         try:
+            # Check networks first
+            networks = self.network_manager.list_networks()
+            missing_networks = [n for n in networks if not n['exists']]
+            if missing_networks:
+                logger.info("Setting up required networks...")
+                if not self.network_manager.ensure_networks(force=force):
+                    if not force:
+                        logger.warning("Network setup failed. Try using --force to recreate networks")
+                    else:
+                        logger.error("Network setup failed even with force option")
+                        return False
+
+            # Add small delay to allow network setup to complete
+            time.sleep(2)
+
+            # Build podman-compose command
             cmd_parts = ["podman-compose"]
             
             if self.compose.project_name:
@@ -153,32 +160,52 @@ class ContainerManager:
                 cmd_parts.append("up -d")
                 
             if services:
-                # Get dependencies if they exist
-                all_services = set()
-                for service in services:
-                    all_services.add(service)
-                    service_config = self.compose.services.get(service)
-                    if service_config and service_config['depends_on']:
-                        all_services.update(service_config['depends_on'])
-                        
-                cmd_parts.extend(sorted(all_services))  # Sort for consistent order
+                # Resolve service names from groups
+                resolved_services = self.resolve_services(services)
+                if not resolved_services:
+                    raise ContainerError("No valid services found to start")
+                    
+                logger.debug(f"Starting services: {resolved_services}")
+                cmd_parts.extend(resolved_services)
                 
             cmd = " ".join(cmd_parts)
-            run_command(cmd)
-            return True
+            logger.debug(f"Executing command: {cmd}")
+            
+            # Execute with retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    run_command(cmd)
+                    return True
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Start attempt {attempt + 1} failed: {e}")
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise
             
         except Exception as e:
             logger.error(f"Failed to start containers: {e}")
             raise ContainerOperationError(f"Failed to start containers: {e}")
 
+        return False
+
     def stop_containers(self, services: Optional[List[str]] = None) -> bool:
         """Stop containers."""
         try:
-            cmd = "podman-compose down"
+            cmd_parts = ["podman-compose", "down"]
+            
             if services:
-                cmd += f" {' '.join(services)}"
+                # Resolve service names from groups
+                resolved_services = self.resolve_services(services)
+                if resolved_services:
+                    cmd_parts.extend(resolved_services)
+                    
+            cmd = " ".join(cmd_parts)
+            logger.debug(f"Executing command: {cmd}")
             run_command(cmd)
             return True
+            
         except Exception as e:
             logger.error(f"Failed to stop containers: {e}")
             raise ContainerOperationError(f"Failed to stop containers: {e}")
@@ -245,3 +272,32 @@ class ContainerManager:
         except Exception as e:
             logger.error(f"Failed to get container stats: {e}")
             return None
+
+    def resolve_services(self, services: Optional[List[str]] = None) -> List[str]:
+        """
+        Resolve service names from group names or service names.
+        
+        Args:
+            services: List of service or group names to resolve
+            
+        Returns:
+            List of actual service names
+        """
+        if not services:
+            return list(self.compose.services.keys())
+            
+        resolved_services = set()
+        for name in services:
+            # Check if it's a group name
+            if name in self.compose.groups:
+                group_services = self.compose.groups[name]['services']
+                logger.debug(f"Resolved group {name} to services: {group_services}")
+                resolved_services.update(group_services)
+            # Check if it's a service name
+            elif name in self.compose.services:
+                resolved_services.add(name)
+            else:
+                logger.warning(f"Unknown service or group: {name}")
+                raise ContainerError(f"Unknown service or group: {name}")
+                
+        return list(resolved_services)
