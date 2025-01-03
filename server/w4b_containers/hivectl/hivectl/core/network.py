@@ -1,18 +1,11 @@
 # /hivectl/hivectl/core/network.py
 """
 Network management functionality for HiveCtl.
-
-This module handles all network-related operations including creation,
-removal, validation, and diagnostics of container networks.
 """
 import json
 import logging
-import time
-from dataclasses import dataclass, asdict, field
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
-import ipaddress
-import yaml
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field, asdict
 
 from .exceptions import NetworkError, NetworkNotFound, NetworkOperationError
 from .utils import run_command
@@ -35,14 +28,6 @@ class NetworkState:
         """Convert to dictionary, excluding None values."""
         return {k: v for k, v in asdict(self).items() if v is not None}
 
-@dataclass
-class NetworkDiagnostic:
-    """Network diagnostic information."""
-    name: str
-    state: str
-    issues: List[str]
-    recommendations: List[str]
-
 class NetworkManager:
     """Manages container network operations."""
     
@@ -54,31 +39,44 @@ class NetworkManager:
             compose_config: Parsed compose configuration
         """
         self.compose = compose_config
-        self.config_dir = Path(compose_config.compose_path).parent / 'config'
-        self._load_network_config()
-        
-    def _load_network_config(self):
-        """Load network configuration from config/networks.yaml if it exists."""
-        self.network_config = {
-            'alternative_ranges': [
-                {'subnet': '172.24.0.0/16', 'mask': 24},
-                {'subnet': '172.25.0.0/16', 'mask': 24},
-                {'subnet': '172.26.0.0/16', 'mask': 24}
-            ],
-            'retry_attempts': 3,
-            'retry_delay': 2,
-            'cleanup_delay': 1
-        }
-        
-        config_file = self.config_dir / 'networks.yaml'
-        if config_file.exists():
-            try:
-                with open(config_file) as f:
-                    custom_config = yaml.safe_load(f)
-                    if custom_config:
-                        self.network_config.update(custom_config)
-            except Exception as e:
-                logger.warning(f"Failed to load network config: {e}")
+
+    def get_network_details(self, network_name: str) -> Optional[Dict]:
+        """Get detailed network information from Podman."""
+        try:
+            cmd = f"podman network inspect {network_name}"
+            result = run_command(cmd)
+            if result and result.stdout:
+                details = json.loads(result.stdout)
+                if isinstance(details, list):
+                    details = details[0]
+
+                # Extract relevant information from Podman's CNI config
+                bridge_plugin = next((p for p in details.get('plugins', []) 
+                                   if p.get('type') == 'bridge'), {})
+                ipam_config = bridge_plugin.get('ipam', {})
+                ranges = ipam_config.get('ranges', [[{}]])[0][0]
+                routes = ipam_config.get('routes', [])
+
+                # Determine if network is internal by checking routes
+                is_internal = not any(r.get('dst') == '0.0.0.0/0' for r in routes)
+
+                return {
+                    'Name': network_name,
+                    'Driver': 'bridge',
+                    'Internal': is_internal,
+                    'IPAM': {
+                        'Config': [{
+                            'Subnet': ranges.get('subnet'),
+                            'Gateway': ranges.get('gateway')
+                        }]
+                    },
+                    'Labels': details.get('args', {}).get('podman_labels', {}),
+                    'Containers': {}  # Podman doesn't provide this in inspect
+                }
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to get network details for {network_name}: {e}")
+            return None
 
     def get_network_state(self) -> Dict[str, NetworkState]:
         """Get current state of all networks."""
@@ -97,29 +95,26 @@ class NetworkManager:
                 existing = next((n for n in networks if n['Name'] == network_name), None)
                 
                 if existing:
-                    # Get detailed network info
-                    detail_cmd = f"podman network inspect {network_name}"
-                    try:
-                        details = json.loads(run_command(detail_cmd).stdout)[0]
-                        ipam = details.get('IPAM', {}).get('Config', [{}])[0]
+                    details = self.get_network_details(network_name)
+                    if details:
+                        ipam_config = (details.get('IPAM', {}).get('Config', [{}]) or [{}])[0]
                         states[name] = NetworkState(
                             name=network_name,
                             exists=True,
-                            subnet=ipam.get('Subnet', 'N/A'),
-                            gateway=ipam.get('Gateway', 'N/A'),
+                            subnet=ipam_config.get('Subnet', 'N/A'),
+                            gateway=ipam_config.get('Gateway', 'N/A'),
                             internal=details.get('Internal', False),
                             labels=details.get('Labels', {}),
                             containers=list(details.get('Containers', {}).keys())
                         )
-                    except Exception as e:
-                        logger.debug(f"Failed to get details for {network_name}: {e}")
+                    else:
                         states[name] = NetworkState(
                             name=network_name,
                             exists=True,
-                            diagnostics={'error': str(e)}
+                            subnet='N/A',
+                            internal=config.get('internal', False)
                         )
                 else:
-                    # Include configured subnet in state even if network doesn't exist
                     ipam = config.get('ipam', {}).get('config', [{}])[0]
                     states[name] = NetworkState(
                         name=network_name,
@@ -142,156 +137,38 @@ class NetworkManager:
 
         return states
 
-    def diagnose_networks(self) -> List[NetworkDiagnostic]:
-        """
-        Perform comprehensive network diagnostics.
-        
-        Returns:
-            List[NetworkDiagnostic]: Diagnostic results for each network
-        """
-        diagnostics = []
+    def validate_networks(self) -> Dict[str, dict]:
+        """Validate all required networks exist."""
+        validation = {}
         states = self.get_network_state()
         
         for name, state in states.items():
-            issues = []
-            recommendations = []
             config = self.compose.networks[name]
+            actual_name = config['name']
             
-            # Check existence
-            if not state.exists:
-                issues.append("Network does not exist")
-                recommendations.append("Run 'hivectl network create' to create the network")
-            else:
-                # Check subnet conflicts
-                if state.subnet:
-                    try:
-                        result = run_command(f"ip addr show | grep '{state.subnet}'")
-                        if result.stdout.strip():
-                            issues.append(f"Subnet {state.subnet} conflicts with existing network interface")
-                            recommendations.append("Consider using an alternative subnet range")
-                    except:
-                        pass
-
-                # Check configuration matches
+            validation[name] = {
+                'exists': state.exists,
+                'config': config,
+                'details': state.to_dict() if state.exists else None
+            }
+            
+            if state.exists:
                 if config.get('internal', False) != state.internal:
-                    issues.append("Network internal setting mismatch")
-                    recommendations.append("Recreate network with correct settings")
-
-                # Check container connectivity
-                for container in state.containers:
-                    try:
-                        result = run_command(f"podman inspect {container}")
-                        details = json.loads(result.stdout)[0]
-                        if not details.get('State', {}).get('Running'):
-                            issues.append(f"Container {container} is not running")
-                    except:
-                        issues.append(f"Unable to inspect container {container}")
-
-            diagnostics.append(NetworkDiagnostic(
-                name=state.name,
-                state="healthy" if not issues else "issues",
-                issues=issues,
-                recommendations=recommendations
-            ))
-        
-        return diagnostics
-
-    def ensure_networks(self, force: bool = False) -> bool:
-        """
-        Ensure all required networks exist.
-        
-        Args:
-            force: Whether to force recreation of networks
-            
-        Returns:
-            bool: Success status
-        """
-        success = True
-        states = self.get_network_state()
-
-        # Remove networks if forced
-        if force:
-            for name, state in states.items():
-                if state.exists:
-                    try:
-                        logger.info(f"Force removing network: {state.name}")
-                        if not self.remove_network(state.name):
-                            success = False
-                        else:
-                            state.exists = False
-                    except Exception as e:
-                        logger.error(f"Failed to remove network {state.name}: {e}")
-                        success = False
-
-            # Add delay after cleanup
-            time.sleep(self.network_config['cleanup_delay'])
-
-        # Create missing networks
-        for name, state in states.items():
-            if not state.exists:
-                try:
-                    config = self.compose.networks[name]
-                    logger.info(f"Creating network: {state.name}")
-                    if not self.create_network(config):
-                        success = False
-                except Exception as e:
-                    logger.error(f"Failed to create network {state.name}: {e}")
-                    success = False
-
-        return success
-
-    def _get_alternative_subnet(self, preferred_subnet: str) -> Optional[Tuple[str, str]]:
-        """Get an alternative subnet."""
-        used_subnets = set()
-        
-        # Track subnets we've tried
-        if not hasattr(self, '_tried_subnets'):
-            self._tried_subnets = set()
-        
-        # Add preferred subnet to tried list
-        self._tried_subnets.add(preferred_subnet)
-        
-        # Get existing networks' subnets
-        try:
-            result = run_command("podman network inspect --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' $(podman network ls -q)")
-            if result.stdout.strip():
-                used_subnets.update(result.stdout.strip().split())
-        except Exception:
-            pass
-
-        # Get interfaces' subnets
-        try:
-            result = run_command("ip -j addr show")
-            interfaces = json.loads(result.stdout)
-            for iface in interfaces:
-                for addr in iface.get('addr_info', []):
-                    if 'local' in addr:
-                        used_subnets.add(f"{addr['local']}/{addr['prefixlen']}")
-        except Exception:
-            pass
-
-        # Try alternative ranges
-        for range_config in self.network_config['alternative_ranges']:
-            try:
-                network = ipaddress.ip_network(range_config['subnet'])
-                mask = range_config['mask']
+                    validation[name].setdefault('issues', []).append('Network internal setting mismatch')
                 
-                for subnet in network.subnets(new_prefix=mask):
-                    subnet_str = str(subnet)
-                    if subnet_str not in used_subnets and subnet_str not in self._tried_subnets:
-                        gateway = str(next(subnet.hosts()))
-                        self._tried_subnets.add(subnet_str)
-                        return subnet_str, gateway
-            except Exception as e:
-                logger.debug(f"Failed to process subnet range {range_config}: {e}")
-                continue
-
-        return None
+                ipam_config = config.get('ipam', {}).get('config', [{}])[0]
+                if 'subnet' in ipam_config:
+                    expected_subnet = ipam_config['subnet']
+                    if state.subnet != 'N/A' and state.subnet != expected_subnet:
+                        validation[name].setdefault('issues', []).append(
+                            f'Subnet mismatch: expected {expected_subnet}, got {state.subnet}'
+                        )
+            
+        return validation
 
     def create_network(self, config: dict) -> bool:
-        """Create a network."""
+        """Create a network exactly as specified in compose file."""
         try:
-            # Build basic command
             cmd_parts = ["podman", "network", "create"]
             
             # Add labels
@@ -309,77 +186,46 @@ class NetworkManager:
             
             cmd_parts.append("--driver=bridge")
             
-            # Handle subnet configuration
+            # Add IPAM configuration
             ipam = config.get('ipam', {}).get('config', [{}])[0]
             if 'subnet' in ipam:
-                # Try original subnet first
-                subnet = ipam['subnet']
-                gateway = ipam.get('gateway')
-                
-                max_attempts = self.network_config['retry_attempts']
-                for attempt in range(max_attempts):
-                    try:
-                        if attempt > 0:
-                            # Try alternative subnet
-                            alternative = self._get_alternative_subnet(subnet)
-                            if alternative is None:
-                                raise NetworkError("No available subnets found")
-                            subnet, gateway = alternative
-                            logger.info(f"Trying alternative subnet: {subnet}")
-
-                        cmd = cmd_parts.copy()
-                        cmd.extend([
-                            f"--subnet={subnet}"
-                        ])
-                        if gateway:
-                            cmd.append(f"--gateway={gateway}")
-                        
-                        # Add network name last
-                        cmd.append(config['name'])
-                        
-                        run_command(" ".join(cmd))
-                        logger.info(f"Created network {config['name']} with subnet {subnet}")
-                        return True
-
-                    except Exception as e:
-                        if "already being used" in str(e) and attempt < max_attempts - 1:
-                            logger.warning(f"Subnet {subnet} in use, will try alternative")
-                            time.sleep(self.network_config['retry_delay'])
-                            continue
-                        elif attempt == max_attempts - 1:
-                            raise NetworkError(f"Failed to create network after {max_attempts} attempts: {e}")
-                        else:
-                            raise
-
-            else:
-                # Create network without subnet specification
-                cmd_parts.append(config['name'])
+                cmd_parts.append(f"--subnet={ipam['subnet']}")
+            if 'gateway' in ipam:
+                cmd_parts.append(f"--gateway={ipam['gateway']}")
+            
+            # Add network name
+            cmd_parts.append(config['name'])
+            
+            try:
                 run_command(" ".join(cmd_parts))
-                logger.info(f"Created network: {config['name']}")
+                logger.info(f"Created network {config['name']}")
                 return True
+                
+            except Exception as e:
+                if "already being used" in str(e):
+                    error_msg = (
+                        f"Cannot create network {config['name']} with subnet {ipam.get('subnet')}: "
+                        "Subnet is already in use.\n"
+                        "Please:\n"
+                        "1. Check for conflicts with 'ip addr show'\n"
+                        "2. Update the subnet in your compose.yaml\n"
+                        "3. Remove conflicting networks if appropriate"
+                    )
+                    raise NetworkError(error_msg)
+                raise
             
         except Exception as e:
             logger.error(f"Failed to create network {config['name']}: {e}")
             raise NetworkOperationError(f"Failed to create network: {e}")
 
-        return False
-
     def remove_network(self, network_name: str) -> bool:
-        """
-        Remove a network.
-        
-        Args:
-            network_name: Name of the network to remove
-            
-        Returns:
-            bool: Success status
-        """
+        """Remove a network."""
         try:
             # First disconnect any containers
             try:
-                inspect = json.loads(run_command(f"podman network inspect {network_name}").stdout)[0]
-                if 'Containers' in inspect:
-                    for container_id in inspect['Containers'].keys():
+                details = self.get_network_details(network_name)
+                if details and details.get('Containers'):
+                    for container_id in details['Containers'].keys():
                         try:
                             run_command(f"podman network disconnect -f {network_name} {container_id}")
                         except Exception as e:
@@ -390,7 +236,6 @@ class NetworkManager:
             # Remove the network
             run_command(f"podman network rm -f {network_name}")
             logger.info(f"Removed network: {network_name}")
-            
             return True
             
         except Exception as e:
@@ -402,7 +247,8 @@ class NetworkManager:
         removed = []
         try:
             # Get existing networks first
-            result = run_command("podman network ls --format json")
+            cmd = "podman network ls --format json"
+            result = run_command(cmd)
             networks = json.loads(result.stdout) if result.stdout.strip() else []
             if not isinstance(networks, list):
                 networks = [networks]
@@ -413,22 +259,19 @@ class NetworkManager:
                 if not name.startswith(project_prefix):
                     continue
 
-                # Get detailed info for the network
-                try:
-                    inspect = json.loads(run_command(f"podman network inspect {name}").stdout)[0]
-                    ipam = inspect.get('IPAM', {}).get('Config', [{}])[0]
-                    subnet = ipam.get('Subnet', 'N/A')
-                except Exception:
-                    subnet = 'N/A'
+                # Get detailed info
+                details = self.get_network_details(name)
+                if not details:
+                    continue
 
-                if force or not network.get('Containers'):  # Remove if forced or unused
+                if force or not details.get('Containers'):
                     try:
                         logger.info(f"Removing network: {name}")
                         if self.remove_network(name):
                             removed.append({
                                 'name': name,
-                                'subnet': subnet,
-                                'containers': len(network.get('Containers', {}))
+                                'subnet': details.get('IPAM', {}).get('Config', [{}])[0].get('Subnet', 'N/A'),
+                                'containers': len(details.get('Containers', {}))
                             })
                     except Exception as e:
                         logger.error(f"Failed to remove network {name}: {e}")
@@ -439,6 +282,46 @@ class NetworkManager:
             logger.error(f"Failed to cleanup networks: {e}")
             return 0, []
 
+    def ensure_networks(self, force: bool = False) -> bool:
+        """Ensure all required networks exist."""
+        success = True
+        states = self.get_network_state()
+        failed_networks = []
+
+        # Remove networks if forced
+        if force:
+            for name, state in states.items():
+                if state.exists:
+                    try:
+                        logger.info(f"Force removing network: {state.name}")
+                        if not self.remove_network(state.name):
+                            success = False
+                            failed_networks.append(f"{state.name} (removal failed)")
+                    except Exception as e:
+                        logger.error(f"Failed to remove network {state.name}: {e}")
+                        success = False
+                        failed_networks.append(f"{state.name} (removal error: {str(e)})")
+
+        # Create missing networks
+        for name, state in states.items():
+            if not state.exists:
+                try:
+                    config = self.compose.networks[name]
+                    logger.info(f"Creating network: {state.name}")
+                    self.create_network(config)
+                except Exception as e:
+                    logger.error(f"Failed to create network {state.name}: {e}")
+                    success = False
+                    failed_networks.append(f"{state.name} (creation failed: {str(e)})")
+
+        if not success:
+            raise NetworkError(
+                "Network setup failed:\n" + 
+                "\n".join(f"- {failure}" for failure in failed_networks)
+            )
+
+        return success
+
     def list_networks(self) -> List[Dict]:
         """
         List all networks with details.
@@ -448,3 +331,12 @@ class NetworkManager:
         """
         states = self.get_network_state()
         return [state.to_dict() for state in states.values()]
+
+    def get_network_containers(self, network_name: str) -> List[str]:
+        """
+        Get containers connected to a network.
+        """
+        states = self.get_network_state()
+        if network_name in states and states[network_name].exists:
+            return states[network_name].containers
+        return []

@@ -103,30 +103,75 @@ class ConsoleUI:
         self.console.print("\n")
         self.console.print(services_table)
 
-    def display_service_status(self, services: List[dict], show_health: bool = True):
-        """Display service status information."""
-        table = Table(title="Service Status", show_header=True, header_style="bold magenta")
-        table.add_column("Service", style="cyan")
-        table.add_column("Status", style="green")
-        if show_health:
-            table.add_column("Health", style="yellow")
-        table.add_column("Uptime", style="blue")
-        table.add_column("Memory", style="magenta")
-        table.add_column("CPU", style="red")
+    def display_service_status(self, containers: List[Dict], show_health: bool = True):
+        """Display service status with operational details."""
+        table = Table(
+            title="Service Status",
+            title_style="bold magenta",
+            show_header=True,
+            header_style="bold cyan"
+        )
         
-        for service in sorted(services, key=lambda s: s['name']):
-            row = [
-                service['name'],
-                self._format_status(service['state']),
-            ]
-            if show_health:
-                row.append(self._format_health(service['health']))
-            row.extend([
-                service['uptime'],
-                service['memory_usage'],
-                service['cpu_usage']
-            ])
-            table.add_row(*row)
+        # Core columns
+        table.add_column("ID", style="dim", no_wrap=True)
+        table.add_column("Name", style="cyan", no_wrap=True)
+        table.add_column("Group", style="blue")
+        table.add_column("Status", style="green")
+        table.add_column("Health", style="yellow")
+        table.add_column("Ports", style="magenta")
+        table.add_column("Networks", style="red")
+        table.add_column("Image", style="dim cyan", no_wrap=True)
+        
+        # Sort containers by group then name
+        sorted_containers = sorted(
+            containers,
+            key=lambda c: (c.group if c.group != 'N/A' else 'zzz', c.name)
+        )
+
+        for container in sorted_containers:
+            # Format status with color
+            status_color = {
+                'running': 'green',
+                'exited': 'red',
+                'created': 'yellow',
+                'paused': 'yellow'
+            }.get(container.state.lower(), 'white')
+            status = f"[{status_color}]{container.state}[/{status_color}]"
+            
+            # Format health with color
+            health_color = {
+                'healthy': 'green',
+                'unhealthy': 'red',
+                'starting': 'yellow',
+                'N/A': 'dim'
+            }.get(container.health.lower(), 'white')
+            health = f"[{health_color}]{container.health}[/{health_color}]"
+            
+            # Format ports for display
+            ports_display = '\n'.join(container.ports) if container.ports else '-'
+            
+            # Format networks
+            networks_display = '\n'.join(container.networks) if container.networks else '-'
+            
+            # Get image tag
+            image_parts = container.image.split(':')
+            image_display = f"{image_parts[-1]}" if len(image_parts) > 1 else container.image
+            
+            table.add_row(
+                container.id,
+                container.name,
+                container.group,
+                status,
+                health,
+                ports_display,
+                networks_display,
+                image_display
+            )
+        
+        if not containers:
+            table.add_row(
+                '-', 'No containers found', '-', '-', '-', '-', '-', '-'
+            )
         
         self.console.print(table)
 
@@ -227,12 +272,24 @@ class ConsoleUI:
         # Networks
         networks = tree.add("🌐 Networks")
         for name, status in config_status.get('networks', {}).items():
-            is_internal = status.get('config', {}).get('internal', False)
             exists = status.get('exists', False)
-            networks.add(
-                f"[{'green' if exists else 'red'}]{'✓' if exists else '✗'} "
-                f"{name}[/] ({'internal' if is_internal else 'external'})"
-            )
+            is_internal = status.get('config', {}).get('internal', False)
+            issues = status.get('issues', [])
+            
+            if exists:
+                if issues:
+                    # Show warning symbol for networks with issues
+                    networks.add(
+                        f"[yellow]⚠ {name}[/] ({'internal' if is_internal else 'external'})"
+                    ).add(f"[yellow]{', '.join(issues)}[/]")
+                else:
+                    networks.add(
+                        f"[green]✓ {name}[/] ({'internal' if is_internal else 'external'})"
+                    )
+            else:
+                networks.add(
+                    f"[red]✗ {name}[/] ({'internal' if is_internal else 'external'})"
+                )
         
         # Volumes
         volumes = tree.add("📦 Volumes")
@@ -388,18 +445,25 @@ class ConsoleUI:
     def display_network_cleanup(self, count: int, removed: List[Dict[str, str]]):
         """Display network cleanup results."""
         if count > 0:
-            table = Table(title=f"Removed {count} Networks", show_header=True)
-            table.add_column("Network Name", style="cyan")
-            table.add_column("Subnet", style="yellow")
-            table.add_column("Containers", style="magenta", justify="right")
-            
-            for network in removed:
-                table.add_row(
-                    network['name'],
-                    network['subnet'],
-                    str(network['containers'])
-                )
-            
-            self.console.print(table)
+            try:
+                table = Table(title=f"Removed {count} Networks", show_header=True)
+                table.add_column("Network Name", style="cyan")
+                table.add_column("Subnet", style="yellow", no_wrap=True)
+                table.add_column("Containers", justify="right", style="magenta")
+                
+                for network in removed:
+                    table.add_row(
+                        network.get('name', 'unknown'),
+                        network.get('subnet', 'N/A'),
+                        str(network.get('containers', 0))
+                    )
+                
+                self.console.print(table)
+            except Exception as e:
+                # Fallback to simple output if table rendering fails
+                self.console.print(f"Removed {count} networks:")
+                for network in removed:
+                    self.console.print(f"  - {network.get('name', 'unknown')}")
         else:
             self.console.print("[yellow]No networks were removed[/yellow]")
+

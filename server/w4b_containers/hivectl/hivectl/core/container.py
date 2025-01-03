@@ -6,7 +6,8 @@ import json
 import time
 import logging
 from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass
+from rich.console import Console
+from dataclasses import dataclass, field, asdict
 
 from .exceptions import (
     ContainerError,
@@ -22,12 +23,22 @@ logger = logging.getLogger('hivectl.container')
 @dataclass
 class ContainerStatus:
     """Container status information."""
-    name: str
+    id: str = ""
+    name: str = ""
     state: str = "not_found"
     health: str = "N/A"
     uptime: str = "N/A"
     memory_usage: str = "N/A"
     cpu_usage: str = "N/A"
+    ports: List[str] = field(default_factory=list)
+    networks: List[str] = field(default_factory=list)
+    image: str = "N/A"
+    group: str = "N/A"  # From compose labels
+    service_type: str = "N/A"
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
 
 @dataclass
 class HealthCheckResult:
@@ -54,41 +65,77 @@ class ContainerManager:
     def get_container_status(self, service_name: Optional[str] = None) -> List[ContainerStatus]:
         """Get status of one or all containers."""
         try:
-            cmd = "podman ps --format json"
+            cmd = "podman ps -a --format json"
             if service_name:
                 cmd += f" --filter name={service_name}"
             
             result = run_command(cmd)
-            
-            try:
-                containers = json.loads(result.stdout)
-                if not isinstance(containers, list):
-                    containers = [containers] if containers else []
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse container list output: {result.stdout}")
-                return []
-
-            # If looking for specific service and not found, return empty status
-            if service_name and not containers:
-                return [ContainerStatus(name=service_name)]
+            containers = json.loads(result.stdout) if result.stdout.strip() else []
+            if not isinstance(containers, list):
+                containers = [containers] if containers else []
 
             status_list = []
             for c in containers:
                 try:
+                    # Get detailed info
+                    inspect_cmd = f"podman inspect {c['Id']}"
+                    details = json.loads(run_command(inspect_cmd).stdout)[0]
+                    state = details.get('State', {})
+
+                    # Parse health status from healthcheck
+                    health_status = 'N/A'
+                    if state.get('Healthcheck'):
+                        health_status = state['Healthcheck'].get('Status', 'N/A')
+                    elif 'Health' in state:
+                        health_status = state['Health'].get('Status', 'N/A')
+                    elif '(healthy)' in c.get('Status', ''):
+                        health_status = 'healthy'
+                    elif '(unhealthy)' in c.get('Status', ''):
+                        health_status = 'unhealthy'
+
+                    # Parse ports
+                    ports = []
+                    for port_config in c.get('Ports', []):
+                        host_ip = port_config.get('hostIP', '')
+                        if not host_ip:
+                            host_ip = '0.0.0.0'
+                        ports.append(
+                            f"{host_ip}:{port_config['hostPort']}->{port_config['containerPort']}/{port_config.get('protocol', 'tcp')}"
+                        )
+
+                    # Get networks
+                    networks = c.get('Networks', [])
+                    if not isinstance(networks, list):
+                        networks = [networks] if networks else []
+
+                    # Get labels
+                    labels = c.get('Labels', {})
+                    group = labels.get('hive.w4b.group', 'N/A')
+                    service_type = labels.get('hive.w4b.type', 'N/A')
+
                     status = ContainerStatus(
+                        id=c['Id'][:12],
                         name=c['Names'][0],
                         state=c['State'],
-                        health=c.get('Health', {}).get('Status', 'N/A'),
-                        uptime=c['StartedAt'],
-                        memory_usage=c.get('MemUsage', 'N/A'),
-                        cpu_usage=c.get('CPUUsage', 'N/A')
+                        health=health_status,
+                        uptime=c.get('Status', 'N/A'),
+                        ports=ports,
+                        networks=networks,
+                        image=c['Image'].split(':')[-1],  # Just the tag
+                        group=group,
+                        service_type=service_type  # Using service_type instead of type
                     )
                     status_list.append(status)
-                except Exception as e:
-                    logger.warning(f"Failed to parse container status: {e}")
-                    status_list.append(ContainerStatus(name=c.get('Names', ['unknown'])[0]))
 
-            return status_list
+                except Exception as e:
+                    logger.warning(f"Failed to get detailed status for container {c['Names'][0]}: {e}")
+                    status_list.append(ContainerStatus(
+                        id=c['Id'][:12],
+                        name=c['Names'][0],
+                        state=c['State']
+                    ))
+
+            return sorted(status_list, key=lambda x: (x.group, x.name))
 
         except Exception as e:
             logger.error(f"Failed to get container status: {e}")
@@ -131,24 +178,17 @@ class ContainerManager:
             }
 
     def start_containers(self, services: Optional[List[str]] = None, force: bool = False) -> bool:
-        """Start containers with dependency resolution."""
+        """
+        Start containers with dependency resolution.
+        
+        Args:
+            services: List of services to start
+            force: Force recreation of containers
+            
+        Returns:
+            bool: Success status
+        """
         try:
-            # Check networks first
-            networks = self.network_manager.list_networks()
-            missing_networks = [n for n in networks if not n['exists']]
-            if missing_networks:
-                logger.info("Setting up required networks...")
-                if not self.network_manager.ensure_networks(force=force):
-                    if not force:
-                        logger.warning("Network setup failed. Try using --force to recreate networks")
-                    else:
-                        logger.error("Network setup failed even with force option")
-                        return False
-
-            # Add small delay to allow network setup to complete
-            time.sleep(2)
-
-            # Build podman-compose command
             cmd_parts = ["podman-compose"]
             
             if self.compose.project_name:
@@ -170,25 +210,12 @@ class ContainerManager:
                 
             cmd = " ".join(cmd_parts)
             logger.debug(f"Executing command: {cmd}")
-            
-            # Execute with retries
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    run_command(cmd)
-                    return True
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"Start attempt {attempt + 1} failed: {e}")
-                        time.sleep(2 ** attempt)  # Exponential backoff
-                    else:
-                        raise
+            run_command(cmd)
+            return True
             
         except Exception as e:
             logger.error(f"Failed to start containers: {e}")
             raise ContainerOperationError(f"Failed to start containers: {e}")
-
-        return False
 
     def stop_containers(self, services: Optional[List[str]] = None) -> bool:
         """Stop containers."""

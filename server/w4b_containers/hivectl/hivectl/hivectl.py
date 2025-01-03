@@ -7,7 +7,7 @@ import sys
 import time
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import click
 from rich.console import Console
@@ -102,10 +102,44 @@ def status(service: Optional[str], health: bool):
 @cli.command()
 @click.argument('services', nargs=-1)
 @click.option('--force', is_flag=True, help='Force recreation of containers')
-def start(services: List[str], force: bool):
+@click.option('--skip-running', is_flag=True, help='Skip containers that are already running')
+def start(services: Tuple[str], force: bool, skip_running: bool):
     """Start services"""
     hive = get_hivectl()
     try:
+        # Check current state if specific services requested
+        if services:
+            resolved_services = hive.container.resolve_services(list(services))
+            # Get status of resolved services
+            running = []
+            for service in resolved_services:
+                status = hive.container.get_container_status(service)
+                if status and status[0].state.lower() == 'running':
+                    running.append(service)
+            
+            if running and not force and not skip_running:
+                message = [
+                    "[yellow]These containers are already running:[/yellow]"
+                ]
+                for container in running:
+                    message.append(f"- {container}")
+                message.extend([
+                    "",
+                    "[cyan]Options:[/cyan]",
+                    f"1. Stop running containers first: hivectl stop {services[0]}",
+                    f"2. Force restart all: hivectl start {services[0]} --force",
+                    f"3. Start only stopped containers: hivectl start {services[0]} --skip-running"
+                ])
+                console.print("\n".join(message))
+                return
+
+            # If skip_running, filter out running containers
+            if skip_running:
+                services = tuple(s for s in services if s not in running)
+                if not services:
+                    console.print("[green]All specified services are already running[/green]")
+                    return
+
         # Ensure networks exist
         with ui.show_progress("Ensuring networks exist...") as progress:
             task = progress.add_task("Creating networks...", total=1)
@@ -121,7 +155,7 @@ def start(services: List[str], force: bool):
         # Start containers
         with ui.show_progress("Starting services...") as progress:
             task = progress.add_task("Starting...", total=1)
-            hive.container.start_containers(services, force)
+            hive.container.start_containers(list(services) if services else None, force)
             progress.update(task, completed=1)
         
         # Show status after start
@@ -190,17 +224,6 @@ def logs(service: str, lines: int, follow: bool):
         logs = hive.container.get_container_logs(service, lines, follow)
         if not follow and logs:
             ui.display_logs(logs, service)
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-@cli.command()
-def networks():
-    """Show network information"""
-    hive = get_hivectl()
-    try:
-        networks = hive.network.get_network_status()
-        ui.display_network_status(networks)
     except Exception as e:
         ui.print_error(e)
         sys.exit(1)
@@ -386,32 +409,6 @@ def cleanup(force):
         sys.exit(1)
 
 @network.command()
-def diagnose():
-    """Run network diagnostics."""
-    hive = get_hivectl()
-    try:
-        diagnostics = hive.network.diagnose_networks()
-        
-        for diag in diagnostics:
-            panel = Panel(
-                Group(
-                    Text(f"Status: {diag.state}", style="bold green" if diag.state == "healthy" else "bold red"),
-                    Text("\nIssues:", style="yellow") if diag.issues else Text(""),
-                    *[Text(f"• {issue}", style="red") for issue in diag.issues],
-                    Text("\nRecommendations:", style="blue") if diag.recommendations else Text(""),
-                    *[Text(f"• {rec}", style="green") for rec in diag.recommendations]
-                ),
-                title=f"[cyan]{diag.name}[/cyan]",
-                border_style="cyan"
-            )
-            console.print(panel)
-            console.print()
-            
-    except Exception as e:
-        ui.print_error(e)
-        sys.exit(1)
-
-@network.command()
 @click.option('--force', is_flag=True, help='Force recreation of networks')
 def create(force):
     """Create required networks."""
@@ -426,7 +423,6 @@ def create(force):
             else:
                 progress.update(task, completed=1)
                 console.print("[yellow]Some networks could not be created[/yellow]")
-                console.print("Run [cyan]hivectl network diagnose[/cyan] for details")
                 
     except Exception as e:
         ui.print_error(e)
@@ -473,7 +469,6 @@ COMMANDS = {
         'subcommands': {
             'list': 'List all networks and their status',
             'cleanup': 'Clean up unused or all networks',
-            'diagnose': 'Run network diagnostics',
             'create': 'Create required networks',
             'prune': 'Remove unused networks'
         }

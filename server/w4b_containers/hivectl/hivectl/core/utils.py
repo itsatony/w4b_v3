@@ -25,8 +25,12 @@ def setup_logging():
         # Fall back to console-only logging
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[RichHandler(console=console)]
+            format='%(message)s',  # Simplified format
+            handlers=[RichHandler(
+                console=console,
+                show_time=False,  # Don't show timestamp in console
+                show_path=False   # Don't show file path
+            )]
         )
         return
 
@@ -39,7 +43,7 @@ def setup_logging():
                 'datefmt': '%Y-%m-%d %H:%M:%S'
             },
             'simple': {
-                'format': '%(asctime)s - %(levelname)s - %(message)s',
+                'format': '%(message)s',  # Simplified format for console
                 'datefmt': '%Y-%m-%d %H:%M:%S'
             }
         },
@@ -55,7 +59,9 @@ def setup_logging():
             'console': {
                 'class': 'rich.logging.RichHandler',
                 'formatter': 'simple',
-                'level': 'INFO'
+                'level': 'INFO',
+                'show_time': False,
+                'show_path': False
             }
         },
         'loggers': {
@@ -79,8 +85,8 @@ def setup_logging():
         console.print("[yellow]Falling back to basic logging configuration[/yellow]")
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[RichHandler(console=console)]
+            format='%(message)s',
+            handlers=[RichHandler(console=console, show_time=False, show_path=False)]
         )
 
 def get_log_directory() -> Path:

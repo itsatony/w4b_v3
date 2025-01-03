@@ -9,8 +9,8 @@ networks:
     internal: false
     ipam:
       config:
-        - subnet: 10.88.0.0/24
-          gateway: 10.88.0.1
+        - subnet: 10.110.0.0/24
+          gateway: 10.110.0.1
     labels:
       hive.w4b.description: "Frontend network for web services"
       hive.w4b.type: "frontend"
@@ -21,8 +21,8 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 10.90.1.0/24
-          gateway: 10.90.1.1
+        - subnet: 10.120.1.0/24
+          gateway: 10.120.1.1
     labels:
       hive.w4b.description: "Application service network"
       hive.w4b.type: "application"
@@ -33,8 +33,8 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 10.90.2.0/24
-          gateway: 10.90.2.1
+        - subnet: 10.120.2.0/24
+          gateway: 10.120.2.1
     labels:
       hive.w4b.description: "Database network"
       hive.w4b.type: "database"
@@ -45,8 +45,8 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 10.90.3.0/24
-          gateway: 10.90.3.1
+        - subnet: 10.120.3.0/24
+          gateway: 10.120.3.1
     labels:
       hive.w4b.description: "Monitoring network"
       hive.w4b.type: "monitoring"
@@ -57,8 +57,8 @@ networks:
     internal: false
     ipam:
       config:
-        - subnet: 10.90.4.0/24
-          gateway: 10.90.4.1
+        - subnet: 10.120.4.0/24
+          gateway: 10.120.4.1
     labels:
       hive.w4b.description: "VPN network for edge devices"
       hive.w4b.type: "vpn"
@@ -69,8 +69,8 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 10.88.1.0/24
-          gateway: 10.88.1.1
+        - subnet: 10.110.1.0/24
+          gateway: 10.110.1.1
     labels:
       hive.w4b.description: "Backend service network"
       hive.w4b.type: "backend"
@@ -140,7 +140,7 @@ services:
     container_name: w4b_postgres_app
     networks:
       w4b_backend:
-        ipv4_address: 10.88.1.20
+        ipv4_address: 10.110.1.20
     ports:
       - "127.0.0.1:30433:5432"
     volumes:
@@ -177,7 +177,7 @@ services:
     container_name: w4b_postgres_keycloak
     networks:
       w4b_backend:
-        ipv4_address: 10.88.1.10
+        ipv4_address: 10.110.1.10
     ports:
       - "127.0.0.1:30434:5432"
     volumes:
@@ -215,7 +215,7 @@ services:
     container_name: w4b_redis
     networks:
       w4b_backend:
-        ipv4_address: 10.88.1.40
+        ipv4_address: 10.110.1.40
       w4b_database:
     ports:
       - "127.0.0.1:30379:6379"
@@ -246,9 +246,9 @@ services:
       w4b_backend:
     hostname: keycloak
     dns:
-      - 10.90.2.1
+      - 10.120.2.1
     extra_hosts:
-      - "postgres_keycloak:10.90.2.3"
+      - "postgres_keycloak:10.120.2.3"
     ports:
       - "30080:8080"
     volumes:
@@ -259,7 +259,7 @@ services:
       - ./themes/keycloak:/opt/keycloak/themes/custom:ro
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://10.88.1.10:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://10.110.1.10:5432/keycloak
       KC_DB_USERNAME: ${W4B__POSTGRES_KEYCLOAK_USER}
       KC_DB_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
       KEYCLOAK_ADMIN: ${W4B__KEYCLOAK_ADMIN_USER}
@@ -365,7 +365,7 @@ services:
       w4b_backend:
     hostname: grafana
     dns:
-      - 10.90.3.1
+      - 10.120.3.1
     ports:
       - "127.0.0.1:30000:3000"
     volumes:
