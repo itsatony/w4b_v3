@@ -39,3 +39,4 @@ Human voice filtering (typically 85-255Hz)
 1. Use delta encoding for sensor data to only store changes in values.
 2. Implement lossy compression for images, favoring smaller file sizes over perfect quality.
 3. For long-term storage, only keep data points that represent significant changes or daily min/max values.
+4. Use a rolling window to calculate averages and discard old data points.
