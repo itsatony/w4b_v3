@@ -177,12 +177,14 @@ services:
     container_name: w4b_postgres_keycloak
     networks:
       w4b_backend:
-        ipv4_address: 10.110.1.10
+        ipv4_address: 10.110.1.10  # Fixed IP address
+        aliases:
+          - postgres_keycloak
     ports:
       - "127.0.0.1:30434:5432"
     volumes:
       - w4b_keycloak_postgres:/var/lib/postgresql/data
-      - w4b_keycloak_config:/etc/postgresql:ro
+      - ./config/postgres_keycloak:/etc/postgresql:ro
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: ${W4B__POSTGRES_KEYCLOAK_USER}
@@ -200,6 +202,8 @@ services:
     user: "postgres:postgres"
     command: >
       postgres 
+      -c 'log_statement=all' 
+      -c 'log_connections=on'
       -c 'max_connections=200'
       -c 'listen_addresses=*'
     restart: unless-stopped
@@ -244,6 +248,8 @@ services:
     networks:
       w4b_frontend:
       w4b_backend:
+        aliases:
+          - keycloak
     hostname: keycloak
     dns:
       - 10.120.2.1
@@ -262,15 +268,16 @@ services:
       KC_DB_URL: jdbc:postgresql://10.110.1.10:5432/keycloak
       KC_DB_USERNAME: ${W4B__POSTGRES_KEYCLOAK_USER}
       KC_DB_PASSWORD: ${W4B__POSTGRES_KEYCLOAK_PASSWORD}
+      KC_DB_SCHEMA: public
       KEYCLOAK_ADMIN: ${W4B__KEYCLOAK_ADMIN_USER}
       KEYCLOAK_ADMIN_PASSWORD: ${W4B__KEYCLOAK_ADMIN_PASSWORD}
-      KC_DB_SCHEMA: public
-      KC_HOSTNAME: auth.we4bee.network
-      KC_PROXY: edge
+      KC_HOSTNAME: localhost
       KC_HTTP_ENABLED: "true"
+      KC_PROXY: none
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
       KC_CACHE: local
+      KC_TRANSACTION_XA_ENABLED: "false"
     healthcheck:
       test: curl -f http://localhost:8080/health/ready || exit 1
       interval: 10s
@@ -279,14 +286,24 @@ services:
     logging:
       driver: "k8s-file"
     user: "keycloak:keycloak"
-    command: 
-      - "start"
-      - "--optimized"
-    deploy:
-      restart_policy:
-        condition: on-failure
-        delay: 10s
-        max_attempts: 3
+    command:
+      - "start-dev"
+      - "--db=postgres"
+      - "--db-url=jdbc:postgresql://10.110.1.10:5432/keycloak"
+      - "--db-username=${W4B__POSTGRES_KEYCLOAK_USER}"
+      - "--db-password=${W4B__POSTGRES_KEYCLOAK_PASSWORD}"
+      - "--http-enabled=true"
+      - "--http-port=8080"
+      - "--hostname=localhost"
+      - "--hostname-strict=false"
+      - "--health-enabled=true"
+      - "--metrics-enabled=true"
+      - "--cache=local"
+      - "--transaction-xa-enabled=false"
+    depends_on:
+      w4b_postgres_keycloak:
+        condition: service_healthy
+    restart: unless-stopped
     labels:
       hive.w4b.group: "auth"
       hive.w4b.description: "Keycloak Authentication Server"

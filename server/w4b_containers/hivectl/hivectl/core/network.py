@@ -187,42 +187,49 @@ class NetworkManager:
     def create_network(self, config: dict) -> bool:
         """Create a network exactly as specified in compose file."""
         try:
-            cmd_parts = ["podman", "network", "create"]
+            # Build the command with proper argument separation
+            name = config['name']
             
-            # Add labels
-            cmd_parts.extend([
-                f"--label=io.podman.compose.project={self.compose.project_name}",
-                f"--label=com.docker.compose.project={self.compose.project_name}"
+            # Start with basic command and name
+            cmd = ["podman", "network", "create"]
+            
+            # Add labels individually
+            cmd.extend([
+                "--label", f"io.podman.compose.project={self.compose.project_name}",
+                "--label", f"com.docker.compose.project={self.compose.project_name}"
             ])
             
             for key, value in config.get('labels', {}).items():
-                cmd_parts.append(f"--label={key}={value}")
+                cmd.extend(["--label", f"{key}={value}"])
 
             # Add network configuration
             if config.get('internal', False):
-                cmd_parts.append("--internal")
+                cmd.append("--internal")
             
-            cmd_parts.append("--driver=bridge")
+            cmd.extend(["--driver", "bridge"])
             
             # Add IPAM configuration
             ipam = config.get('ipam', {}).get('config', [{}])[0]
             if 'subnet' in ipam:
-                cmd_parts.append(f"--subnet={ipam['subnet']}")
+                cmd.extend(["--subnet", ipam['subnet']])
             if 'gateway' in ipam:
-                cmd_parts.append(f"--gateway={ipam['gateway']}")
+                cmd.extend(["--gateway", ipam['gateway']])
             
-            # Add network name
-            cmd_parts.append(config['name'])
+            # Add network name as last argument
+            cmd.append(name)
+            
+            # Convert command list to properly quoted string
+            cmd_str = " ".join(f'"{arg}"' if ' ' in arg else arg for arg in cmd)
             
             try:
-                run_command(" ".join(cmd_parts))
-                logger.info(f"Created network {config['name']}")
+                run_command(cmd_str)
+                logger.info(f"Created network {name}")
                 return True
                 
             except Exception as e:
                 if "already being used" in str(e):
                     error_msg = (
-                        f"Cannot create network {config['name']} with subnet {ipam.get('subnet')}: "
+                        f"Cannot create network {name} with subnet {ipam.get('subnet')}: "
                         "Subnet is already in use.\n"
                         "Please:\n"
                         "1. Check for conflicts with 'ip addr show'\n"
