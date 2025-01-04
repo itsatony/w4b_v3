@@ -4,21 +4,33 @@ Custom exceptions for the HiveCtl application.
 
 class HiveCtlError(Exception):
     """Base exception for HiveCtl errors."""
-    pass
+    def __init__(self, message: str, recovery_suggestion: str = None):
+        super().__init__(message)
+        self.recovery_suggestion = recovery_suggestion
 
 class ComposeError(HiveCtlError):
     """Raised when there are issues with the compose file."""
     pass
 
-class ComposeFileNotFound(ComposeError):
-    """Raised when the compose file is not found in the current directory."""
-    def __init__(self, message="No compose.yaml file found in current directory"):
-        self.message = message
-        super().__init__(self.message)
+class ComposeFileNotFound(HiveCtlError):
+    """Raised when compose file is not found."""
+    def __init__(self):
+        super().__init__(
+            "No compose.yaml or compose.yml found in current directory",
+            "Please run hivectl from a directory containing a compose file"
+        )
 
 class InvalidComposeFile(ComposeError):
     """Raised when the compose file is invalid or missing required labels."""
     pass
+
+class ComposeParseError(HiveCtlError):
+    """Raised when compose file cannot be parsed."""
+    def __init__(self, detail: str):
+        super().__init__(
+            f"Failed to parse compose file: {detail}",
+            "Please check your compose file syntax"
+        )
 
 class ContainerError(HiveCtlError):
     """Raised for container-related errors."""
@@ -76,24 +88,13 @@ class CircularDependencyError(DependencyError):
     """Raised when circular dependencies are detected."""
     pass
 
-class HealthCheckError(HiveCtlError):
-    """Base class for health check related errors."""
-    def __init__(self, service_name, message, recovery_suggestion=None):
-        self.service_name = service_name
-        self.recovery_suggestion = recovery_suggestion
-        full_message = f"Health check failed for service '{service_name}': {message}"
-        if recovery_suggestion:
-            full_message += f"\nSuggested recovery: {recovery_suggestion}"
-        super().__init__(full_message)
+class HealthCheckError(ContainerError):
+    """Raised when a health check fails."""
+    pass
 
 class HealthCheckTimeout(HealthCheckError):
     """Raised when a health check times out."""
-    def __init__(self, service_name, timeout):
-        super().__init__(
-            service_name,
-            f"Health check timed out after {timeout} seconds",
-            "Try increasing the health check timeout or check service logs for delays"
-        )
+    pass
 
 class ResourceWarning(Warning):
     """Base class for resource-related warnings."""
@@ -141,15 +142,9 @@ class DiskWarning(ResourceWarning):
         )
 
 class CommandError(HiveCtlError):
-    """Raised for command execution errors."""
-    def __init__(self, command, error_message, return_code=None, recovery_suggestion=None):
-        self.command = command
-        self.error_message = error_message
-        self.return_code = return_code
-        self.recovery_suggestion = recovery_suggestion
-        message = f"Command '{command}' failed with error: {error_message}"
-        if return_code is not None:
-            message += f" (return code: {return_code})"
-        if recovery_suggestion:
-            message += f"\nSuggested recovery: {recovery_suggestion}"
-        super().__init__(message)
+    """Raised when a command fails."""
+    def __init__(self, cmd: str, error: str, code: int = None):
+        msg = f"Command failed: {error}"
+        if code:
+            msg += f" (exit code {code})"
+        super().__init__(msg, f"Command was: {cmd}")

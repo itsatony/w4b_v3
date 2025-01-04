@@ -1,236 +1,139 @@
 """
-Compose file handling for HiveCtl.
+Compose file parsing and configuration management.
 """
+import yaml
 import logging
 from pathlib import Path
-import yaml
-from typing import Dict, List, Optional, Set, Tuple
-
-from .exceptions import (
-    ComposeFileNotFound,
-    InvalidComposeFile,
-    MissingLabelsError,
-    CircularDependencyError
-)
-from .utils import validate_label_schema, parse_dependencies
+from typing import Dict, List, Set
+from .utils import get_compose_path
+from .exceptions import ComposeFileNotFound, ComposeParseError
 
 logger = logging.getLogger('hivectl.compose')
 
 class ComposeConfig:
-    """
-    Handles parsing and validation of the compose file.
-    """
-    def __init__(self, compose_path: Optional[Path] = None):
-        """
-        Initialize the compose configuration.
-        
-        Args:
-            compose_path: Path to the compose file. If None, looks in current directory.
-        """
-        self.compose_path = compose_path or Path.cwd() / 'compose.yaml'
-        if not self.compose_path.exists():
-            self.compose_path = Path.cwd() / 'compose.yml'
-            if not self.compose_path.exists():
-                raise ComposeFileNotFound()
-                
-        self.config = self._load_compose_file()
-        self.project_name = self.config.get('name', Path.cwd().name)
-        self._validate_compose_file()
-        
-        # Parse service metadata
-        self.services = self._parse_services()
-        self.networks = self._parse_networks()
-        self.volumes = self._parse_volumes()
-        self.groups = self._parse_groups()
-        
-        logger.info(f"Loaded compose file: {self.compose_path}")
-        logger.debug(f"Found {len(self.services)} services in {len(self.groups)} groups")
+    """Manages compose file parsing and configuration."""
+
+    def __init__(self):
+        """Initialize compose configuration."""
+        self.path = get_compose_path()
+        self.raw_config = self._load_compose_file()
+        self.project_name = self.raw_config.get('name', '')
+        self.services = {}
+        self.groups = {}
+        self.volumes = {}
+        self.networks = {}
+        self._parse_config()
 
     def _load_compose_file(self) -> dict:
-        """Load and parse the compose file."""
+        """Load and parse compose file."""
         try:
-            with open(self.compose_path) as f:
+            with open(self.path) as f:
                 return yaml.safe_load(f)
+        except FileNotFoundError:
+            raise ComposeFileNotFound()
         except yaml.YAMLError as e:
-            logger.error(f"Failed to parse compose file: {e}")
-            raise InvalidComposeFile(f"Invalid YAML format: {e}")
+            raise ComposeParseError(f"Failed to parse compose file: {e}")
 
-    def _validate_compose_file(self):
-        """Validate the compose file structure and required sections."""
-        required_sections = ['services']
-        missing = [section for section in required_sections 
-                  if section not in self.config]
+    def _parse_config(self):
+        """Parse compose configuration."""
+        services_config = self.raw_config.get('services', {})
+        networks_config = self.raw_config.get('networks', {})
+        volumes_config = self.raw_config.get('volumes', {})
         
-        if missing:
-            raise InvalidComposeFile(
-                f"Missing required sections: {', '.join(missing)}"
-            )
-
-    def _parse_services(self) -> Dict[str, dict]:
-        """Parse service configurations and validate labels."""
-        services = {}
-        services_config = self.config.get('services', {})
-        
-        for service_name, service_config in services_config.items():
-            # Validate labels
-            labels = service_config.get('labels', {})
-            is_valid, missing_labels = validate_label_schema(labels, service_name)
+        # First pass: collect basic service info and groups
+        for name, config in services_config.items():
+            labels = config.get('labels', {})
             
-            if not is_valid:
-                raise MissingLabelsError(service_name, missing_labels)
-                
-            # Parse dependencies
-            depends_on = set(service_config.get('depends_on', []))
-            label_depends, label_required = parse_dependencies(labels)
+            # Get service metadata from labels
+            group = labels.get('hive.w4b.group', 'ungrouped')
+            service_type = labels.get('hive.w4b.type', 'service')
             
-            # Merge compose and label dependencies
-            all_dependencies = depends_on.union(label_depends)
+            # Initialize group if not exists
+            if group not in self.groups:
+                self.groups[group] = {
+                    'services': [],
+                    'types': set()
+                }
             
-            services[service_name] = {
-                'config': service_config,
-                'group': labels['hive.w4b.group'],
-                'type': labels['hive.w4b.type'],
-                'description': labels['hive.w4b.description'],
-                'priority': int(labels['hive.w4b.priority']),
-                'depends_on': list(all_dependencies),
-                'required_by': label_required,
-                'health_config': service_config.get('healthcheck', {})
-            }
+            # Add service to group
+            self.groups[group]['services'].append(name)
+            self.groups[group]['types'].add(service_type)
             
-        return services
-
-    def _parse_networks(self) -> Dict[str, dict]:
-        """Parse network configurations."""
-        return {
-            name: {
-                'driver': config.get('driver', 'bridge'),
-                'internal': config.get('internal', False),
-                'ipam': config.get('ipam', {}),
-                'name': config.get('name', f"{self.project_name}_{name}")
-            }
-            for name, config in self.config.get('networks', {}).items()
-        }
-
-    def _parse_volumes(self) -> Dict[str, dict]:
-        """Parse volume configurations."""
-        volumes = {}
-        for name, config in self.config.get('volumes', {}).items():
-            # Extract service name from volume name if possible
-            parts = name.split('_')
-            if len(parts) > 2:
-                service = '_'.join(parts[:-1])  # Everything except the last part
-                volume_type = parts[-1]  # Last part
-            else:
-                service = name
-                volume_type = 'data'
-                
-            if service not in volumes:
-                volumes[service] = {}
-            
-            volumes[service][volume_type] = {
-                'name': name,
+            # Store service config
+            self.services[name] = {
+                'group': group,
+                'type': service_type,
+                'description': labels.get('hive.w4b.description', ''),
+                'priority': int(labels.get('hive.w4b.priority', '50')),
+                'depends_on': [],
+                'required_by': [],
                 'config': config
             }
+        
+        # Second pass: resolve dependencies
+        for name, service in self.services.items():
+            labels = services_config[name].get('labels', {})
             
-        return volumes
-
-    def _parse_groups(self) -> Dict[str, dict]:
-        """Parse service groups from labels."""
-        groups = {}
-        for service_name, service_data in self.services.items():
-            group_name = service_data['group']
-            
-            if group_name not in groups:
-                groups[group_name] = {
-                    'services': [],
-                    'types': set(),
-                    'description': f"Services for {group_name}"
-                }
+            # Get dependencies from labels
+            if 'hive.w4b.depends_on' in labels:
+                deps = labels['hive.w4b.depends_on'].split(',')
+                service['depends_on'] = [d.strip() for d in deps if d.strip()]
                 
-            groups[group_name]['services'].append(service_name)
-            groups[group_name]['types'].add(service_data['type'])
+            if 'hive.w4b.required_by' in labels:
+                reqs = labels['hive.w4b.required_by'].split(',')
+                service['required_by'] = [r.strip() for r in reqs if r.strip()]
             
-        return groups
+            # Add compose file dependencies
+            if 'depends_on' in services_config[name]:
+                compose_deps = services_config[name]['depends_on']
+                if isinstance(compose_deps, list):
+                    service['depends_on'].extend(compose_deps)
+                elif isinstance(compose_deps, dict):
+                    service['depends_on'].extend(compose_deps.keys())
 
-    def validate_dependencies(self) -> bool:
-        """
-        Validate service dependencies and check for circular dependencies.
-        
-        Returns:
-            bool: True if dependencies are valid
+        # Sort group services and convert types to list
+        for group in self.groups.values():
+            group['services'].sort()
+            group['types'] = sorted(list(group['types']))
+
+        # Parse networks
+        for name, config in networks_config.items():
+            network_name = config.get('name', f"{self.project_name}_{name}")
+            parsed_config = {
+                'name': network_name,
+                'driver': config.get('driver', 'bridge'),
+                'internal': bool(config.get('internal', False)),  # Ensure boolean
+                'ipam': config.get('ipam', {}),
+                'labels': config.get('labels', {}),
+                'config': config
+            }
+            self.networks[name] = parsed_config
+            logger.debug(f"Parsed network {name}: internal={parsed_config['internal']}")
+
+        # Parse volumes with service grouping
+        volumes_config = self.raw_config.get('volumes', {})
+        for name, config in volumes_config.items():
+            if not isinstance(config, dict):
+                config = {}  # Handle empty volume definitions
             
-        Raises:
-            CircularDependencyError: If circular dependencies are detected
-        """
-        def check_circular(service: str, stack: Set[str]) -> None:
-            if service in stack:
-                path = ' -> '.join(list(stack) + [service])
-                raise CircularDependencyError(
-                    f"Circular dependency detected: {path}"
-                )
+            volume_name = name
+            if not volume_name.startswith(f"{self.project_name}_"):
+                volume_name = f"{self.project_name}_{name}"
                 
-            stack.add(service)
-            for dep in self.services[service]['depends_on']:
-                if dep in self.services:  # Skip external dependencies
-                    check_circular(dep, stack.copy())
-
-        # Check each service
-        for service in self.services:
-            check_circular(service, set())
+            # Group volumes by service
+            service_name = next(
+                (svc for svc in self.services.keys() if name.startswith(f"{self.project_name}_{svc}")),
+                "w4b"  # Default service group
+            )
             
-        return True
-
-    def get_service_order(self) -> List[str]:
-        """
-        Get services in dependency order for startup/shutdown.
-        
-        Returns:
-            List[str]: Services in correct startup order
-        """
-        self.validate_dependencies()
-        
-        # Build dependency graph
-        graph = {service: set(data['depends_on']) 
-                for service, data in self.services.items()}
+            if service_name not in self.volumes:
+                self.volumes[service_name] = {}
                 
-        # Topological sort
-        result = []
-        visited = set()
-        
-        def visit(service: str):
-            if service in visited:
-                return
-            visited.add(service)
-            for dep in graph[service]:
-                if dep in graph:  # Only visit known services
-                    visit(dep)
-            result.append(service)
-            
-        for service in sorted(graph, key=lambda s: self.services[s]['priority']):
-            visit(service)
-            
-        return result
+            self.volumes[service_name][name] = {
+                'name': volume_name,
+                'driver': config.get('driver', 'local'),
+                'config': config
+            }
 
-    def get_group_services(self, group: str) -> List[str]:
-        """Get all services in a group."""
-        return self.groups.get(group, {}).get('services', [])
-
-    def get_service_commands(self, service: str) -> Dict[str, str]:
-        """Get the commands configured for a service."""
-        service_config = self.services[service]['config']
-        return {
-            'command': service_config.get('command', ''),
-            'entrypoint': service_config.get('entrypoint', '')
-        }
-
-    def get_service_environment(self, service: str) -> Dict[str, str]:
-        """Get the environment variables for a service."""
-        return self.services[service]['config'].get('environment', {})
-
-    def get_service_networks(self, service: str) -> List[str]:
-        """Get the networks a service is connected to."""
-        return list(self.services[service]['config'].get('networks', {}).keys())
-
-    def get_service_volumes(self, service: str) -> List[str]:
-        """Get the volumes mounted to a service."""
-        return self.services[service]['config'].get('volumes', [])
+        logger.debug(f"Parsed {len(self.services)} services, {len(self.networks)} networks, {len(self.volumes)} volumes")
+        logger.debug(f"Groups: {list(self.groups.keys())}")

@@ -50,28 +50,43 @@ class NetworkManager:
                 if isinstance(details, list):
                     details = details[0]
 
-                # Extract relevant information from Podman's CNI config
-                bridge_plugin = next((p for p in details.get('plugins', []) 
-                                   if p.get('type') == 'bridge'), {})
-                ipam_config = bridge_plugin.get('ipam', {})
-                ranges = ipam_config.get('ranges', [[{}]])[0][0]
-                routes = ipam_config.get('routes', [])
+                # Get containers connected to this network
+                container_cmd = f"podman ps -a --format json --filter network={network_name}"
+                container_result = run_command(container_cmd)
+                containers = []
+                
+                if container_result.stdout.strip():
+                    try:
+                        container_data = json.loads(container_result.stdout)
+                        if isinstance(container_data, dict):
+                            container_data = [container_data]
+                        elif not isinstance(container_data, list):
+                            container_data = []
+                        containers = [
+                            {'Id': c['Id'], 'Name': c['Names'][0] if isinstance(c['Names'], list) else c['Names']}
+                            for c in container_data
+                        ]
+                    except Exception as e:
+                        logger.debug(f"Failed to parse container data: {e}")
 
-                # Determine if network is internal by checking routes
-                is_internal = not any(r.get('dst') == '0.0.0.0/0' for r in routes)
+                # Extract network config
+                bridge_plugin = next((p for p in details.get('plugins', []) 
+                                    if p.get('type') == 'bridge'), {})
+                ipam_config = bridge_plugin.get('ipam', {})
+                ranges = ipam_config.get('ranges', [[{}]])[0][0] if ipam_config.get('ranges') else {}
 
                 return {
                     'Name': network_name,
                     'Driver': 'bridge',
-                    'Internal': is_internal,
+                    'Internal': bridge_plugin.get('internal', False),
                     'IPAM': {
                         'Config': [{
                             'Subnet': ranges.get('subnet'),
                             'Gateway': ranges.get('gateway')
                         }]
                     },
-                    'Labels': details.get('args', {}).get('podman_labels', {}),
-                    'Containers': {}  # Podman doesn't provide this in inspect
+                    'Labels': details.get('labels', {}),
+                    'Containers': containers
                 }
             return None
         except Exception as e:
@@ -105,7 +120,7 @@ class NetworkManager:
                             gateway=ipam_config.get('Gateway', 'N/A'),
                             internal=details.get('Internal', False),
                             labels=details.get('Labels', {}),
-                            containers=list(details.get('Containers', {}).keys())
+                            containers=[c['Name'] for c in details.get('Containers', []) if isinstance(c, dict)]
                         )
                     else:
                         states[name] = NetworkState(
@@ -153,8 +168,11 @@ class NetworkManager:
             }
             
             if state.exists:
+                logger.debug(f"Validating network {name}: config_internal={config.get('internal')}, state_internal={state.internal}")
                 if config.get('internal', False) != state.internal:
-                    validation[name].setdefault('issues', []).append('Network internal setting mismatch')
+                    validation[name].setdefault('issues', []).append(
+                        f"Network internal setting mismatch (config: {config.get('internal')}, actual: {state.internal})"
+                    )
                 
                 ipam_config = config.get('ipam', {}).get('config', [{}])[0]
                 if 'subnet' in ipam_config:
@@ -225,11 +243,13 @@ class NetworkManager:
             try:
                 details = self.get_network_details(network_name)
                 if details and details.get('Containers'):
-                    for container_id in details['Containers'].keys():
-                        try:
-                            run_command(f"podman network disconnect -f {network_name} {container_id}")
-                        except Exception as e:
-                            logger.warning(f"Failed to disconnect container {container_id}: {e}")
+                    for cinfo in details['Containers']:
+                        container_id = cinfo.get('Id')
+                        if container_id:
+                            try:
+                                run_command(f"podman network disconnect -f {network_name} {container_id}")
+                            except Exception as e:
+                                logger.warning(f"Failed to disconnect container {container_id}: {e}")
             except Exception as e:
                 logger.debug(f"Failed to get network containers: {e}")
 
@@ -266,12 +286,13 @@ class NetworkManager:
 
                 if force or not details.get('Containers'):
                     try:
+                        container_count = len(details['Containers']) if isinstance(details['Containers'], list) else 0
                         logger.info(f"Removing network: {name}")
                         if self.remove_network(name):
                             removed.append({
                                 'name': name,
                                 'subnet': details.get('IPAM', {}).get('Config', [{}])[0].get('Subnet', 'N/A'),
-                                'containers': len(details.get('Containers', {}))
+                                'containers': container_count
                             })
                     except Exception as e:
                         logger.error(f"Failed to remove network {name}: {e}")
@@ -323,14 +344,56 @@ class NetworkManager:
         return success
 
     def list_networks(self) -> List[Dict]:
-        """
-        List all networks with details.
-        
-        Returns:
-            List[Dict]: Network information list
-        """
-        states = self.get_network_state()
-        return [state.to_dict() for state in states.values()]
+        """List all networks with details."""
+        try:
+            cmd = "podman network ls --format json"
+            result = run_command(cmd)
+            
+            try:
+                networks = json.loads(result.stdout) if result.stdout.strip() else []
+                if not isinstance(networks, list):
+                    networks = [networks] if networks else []
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse network list JSON: %s", e)
+                return []
+
+            network_list = []
+            for net in networks:
+                try:
+                    if not net['Name'].startswith(f"{self.compose.project_name}_"):
+                        continue
+                        
+                    details = self.get_network_details(net['Name'])
+                    if not details:
+                        continue
+
+                    # Simply get container_count from the length of Containers list
+                    container_count = details.get('Containers', 0)
+                    
+                    subnet = 'N/A'
+                    internal = False
+                    if details:
+                        ipam_config = (details.get('IPAM', {}).get('Config', [{}]) or [{}])[0]
+                        subnet = ipam_config.get('Subnet', 'N/A')
+                        internal = details.get('Internal', False)
+
+                    network_list.append({
+                        'name': net['Name'],
+                        'exists': True,
+                        'subnet': subnet,
+                        'internal': internal,
+                        'containers': container_count  # This is now an integer
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing network {net.get('Name', 'unknown')}: {e}")
+                    continue
+
+            return network_list
+
+        except Exception as e:
+            logger.exception("Failed to list networks")
+            return []
 
     def get_network_containers(self, network_name: str) -> List[str]:
         """
@@ -340,3 +403,4 @@ class NetworkManager:
         if network_name in states and states[network_name].exists:
             return states[network_name].containers
         return []
+

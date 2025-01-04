@@ -28,6 +28,8 @@ We use speaking class, function, var and const (etc) names and try to keep the c
 We use comments to explain complex code or logic and to provide context where necessary.
 We use GoDoc style comments for Go code and reST PEP 257 style comments for Python code.
 
+NEVER use var or const names that could conflict with libraries or commands. Always use unique names where possible.
+
 ## Server Architecture
 
 we are on ubuntu 22.04

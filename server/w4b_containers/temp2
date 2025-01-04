@@ -1,0 +1,441 @@
+$ podman network ls --format json
+[
+  {
+    "Name": "podman",
+    "CNIVersion": "0.4.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuMCIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcE1hc3EiOnRydWUsImlwYW0iOnsicmFuZ2VzIjpbW3siZ2F0ZXdheSI6IjEwLjg4LjAuMSIsInN1Ym5ldCI6IjEwLjg4LjAuMC8xNiJ9XV0sInJvdXRlcyI6W3siZHN0IjoiMC4wLjAuMC8wIn1dLCJ0eXBlIjoiaG9zdC1sb2NhbCJ9LCJpc0dhdGV3YXkiOnRydWUsInR5cGUiOiJicmlkZ2UifQ=="
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoiZmlyZXdhbGwifQ=="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICJjbmlWZXJzaW9uIjogIjAuNC4wIiwKICAibmFtZSI6ICJwb2RtYW4iLAogICJwbHVnaW5zIjogWwogICAgewogICAgICAidHlwZSI6ICJicmlkZ2UiLAogICAgICAiYnJpZGdlIjogImNuaS1wb2RtYW4wIiwKICAgICAgImlzR2F0ZXdheSI6IHRydWUsCiAgICAgICJpcE1hc3EiOiB0cnVlLAogICAgICAiaGFpcnBpbk1vZGUiOiB0cnVlLAogICAgICAiaXBhbSI6IHsKICAgICAgICAidHlwZSI6ICJob3N0LWxvY2FsIiwKICAgICAgICAicm91dGVzIjogW3sgImRzdCI6ICIwLjAuMC4wLzAiIH1dLAogICAgICAgICJyYW5nZXMiOiBbCiAgICAgICAgICBbCiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAic3VibmV0IjogIjEwLjg4LjAuMC8xNiIsCiAgICAgICAgICAgICAgImdhdGV3YXkiOiAiMTAuODguMC4xIgogICAgICAgICAgICB9CiAgICAgICAgICBdCiAgICAgICAgXQogICAgICB9CiAgICB9LAogICAgewogICAgICAidHlwZSI6ICJwb3J0bWFwIiwKICAgICAgImNhcGFiaWxpdGllcyI6IHsKICAgICAgICAicG9ydE1hcHBpbmdzIjogdHJ1ZQogICAgICB9CiAgICB9LAogICAgewogICAgICAidHlwZSI6ICJmaXJld2FsbCIKICAgIH0sCiAgICB7CiAgICAgICJ0eXBlIjogInR1bmluZyIKICAgIH0KICBdCn0K",
+    "Labels": null
+  },
+  {
+    "Name": "w4b_application",
+    "CNIVersion": "1.0.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuMiIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcGFtIjp7InJhbmdlcyI6W1t7ImdhdGV3YXkiOiIxMC4xMjAuMS4xIiwic3VibmV0IjoiMTAuMTIwLjEuMC8yNCJ9XV0sInJvdXRlcyI6W3siZHN0IjoiMC4wLjAuMC8wIn1dLCJ0eXBlIjoiaG9zdC1sb2NhbCJ9LCJpc0dhdGV3YXkiOmZhbHNlLCJ0eXBlIjoiYnJpZGdlIn0="
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJiYWNrZW5kIjoiIiwidHlwZSI6ImZpcmV3YWxsIn0="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICAiYXJncyI6IHsKICAgICAgInBvZG1hbl9sYWJlbHMiOiB7CiAgICAgICAgICJjb20uZG9ja2VyLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiLAogICAgICAgICAiaW8ucG9kbWFuLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiCiAgICAgIH0KICAgfSwKICAgImNuaVZlcnNpb24iOiAiMS4wLjAiLAogICAibmFtZSI6ICJ3NGJfYXBwbGljYXRpb24iLAogICAicGx1Z2lucyI6IFsKICAgICAgewogICAgICAgICAidHlwZSI6ICJicmlkZ2UiLAogICAgICAgICAiYnJpZGdlIjogImNuaS1wb2RtYW4yIiwKICAgICAgICAgImlzR2F0ZXdheSI6IGZhbHNlLAogICAgICAgICAiaGFpcnBpbk1vZGUiOiB0cnVlLAogICAgICAgICAiaXBhbSI6IHsKICAgICAgICAgICAgInR5cGUiOiAiaG9zdC1sb2NhbCIsCiAgICAgICAgICAgICJyb3V0ZXMiOiBbCiAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgImRzdCI6ICIwLjAuMC4wLzAiCiAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgXSwKICAgICAgICAgICAgInJhbmdlcyI6IFsKICAgICAgICAgICAgICAgWwogICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICJzdWJuZXQiOiAiMTAuMTIwLjEuMC8yNCIsCiAgICAgICAgICAgICAgICAgICAgICJnYXRld2F5IjogIjEwLjEyMC4xLjEiCiAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgXQogICAgICAgICAgICBdCiAgICAgICAgIH0KICAgICAgfSwKICAgICAgewogICAgICAgICAidHlwZSI6ICJwb3J0bWFwIiwKICAgICAgICAgImNhcGFiaWxpdGllcyI6IHsKICAgICAgICAgICAgInBvcnRNYXBwaW5ncyI6IHRydWUKICAgICAgICAgfQogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogImZpcmV3YWxsIiwKICAgICAgICAgImJhY2tlbmQiOiAiIgogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogInR1bmluZyIKICAgICAgfQogICBdCn0=",
+    "Labels": {
+      "com.docker.compose.project": "w4b",
+      "io.podman.compose.project": "w4b"
+    }
+  },
+  {
+    "Name": "w4b_backend",
+    "CNIVersion": "1.0.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuNiIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcGFtIjp7InJhbmdlcyI6W1t7ImdhdGV3YXkiOiIxMC4xMTAuMS4xIiwic3VibmV0IjoiMTAuMTEwLjEuMC8yNCJ9XV0sInJvdXRlcyI6W3siZHN0IjoiMC4wLjAuMC8wIn1dLCJ0eXBlIjoiaG9zdC1sb2NhbCJ9LCJpc0dhdGV3YXkiOmZhbHNlLCJ0eXBlIjoiYnJpZGdlIn0="
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJiYWNrZW5kIjoiIiwidHlwZSI6ImZpcmV3YWxsIn0="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICAiYXJncyI6IHsKICAgICAgInBvZG1hbl9sYWJlbHMiOiB7CiAgICAgICAgICJjb20uZG9ja2VyLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiLAogICAgICAgICAiaW8ucG9kbWFuLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiCiAgICAgIH0KICAgfSwKICAgImNuaVZlcnNpb24iOiAiMS4wLjAiLAogICAibmFtZSI6ICJ3NGJfYmFja2VuZCIsCiAgICJwbHVnaW5zIjogWwogICAgICB7CiAgICAgICAgICJ0eXBlIjogImJyaWRnZSIsCiAgICAgICAgICJicmlkZ2UiOiAiY25pLXBvZG1hbjYiLAogICAgICAgICAiaXNHYXRld2F5IjogZmFsc2UsCiAgICAgICAgICJoYWlycGluTW9kZSI6IHRydWUsCiAgICAgICAgICJpcGFtIjogewogICAgICAgICAgICAidHlwZSI6ICJob3N0LWxvY2FsIiwKICAgICAgICAgICAgInJvdXRlcyI6IFsKICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAiZHN0IjogIjAuMC4wLjAvMCIKICAgICAgICAgICAgICAgfQogICAgICAgICAgICBdLAogICAgICAgICAgICAicmFuZ2VzIjogWwogICAgICAgICAgICAgICBbCiAgICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICAgInN1Ym5ldCI6ICIxMC4xMTAuMS4wLzI0IiwKICAgICAgICAgICAgICAgICAgICAgImdhdGV3YXkiOiAiMTAuMTEwLjEuMSIKICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICBdCiAgICAgICAgICAgIF0KICAgICAgICAgfQogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogInBvcnRtYXAiLAogICAgICAgICAiY2FwYWJpbGl0aWVzIjogewogICAgICAgICAgICAicG9ydE1hcHBpbmdzIjogdHJ1ZQogICAgICAgICB9CiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgInR5cGUiOiAiZmlyZXdhbGwiLAogICAgICAgICAiYmFja2VuZCI6ICIiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgInR5cGUiOiAidHVuaW5nIgogICAgICB9CiAgIF0KfQ==",
+    "Labels": {
+      "com.docker.compose.project": "w4b",
+      "io.podman.compose.project": "w4b"
+    }
+  },
+  {
+    "Name": "w4b_database",
+    "CNIVersion": "1.0.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuMyIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcGFtIjp7InJhbmdlcyI6W1t7ImdhdGV3YXkiOiIxMC4xMjAuMi4xIiwic3VibmV0IjoiMTAuMTIwLjIuMC8yNCJ9XV0sInJvdXRlcyI6W3siZHN0IjoiMC4wLjAuMC8wIn1dLCJ0eXBlIjoiaG9zdC1sb2NhbCJ9LCJpc0dhdGV3YXkiOmZhbHNlLCJ0eXBlIjoiYnJpZGdlIn0="
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJiYWNrZW5kIjoiIiwidHlwZSI6ImZpcmV3YWxsIn0="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICAiYXJncyI6IHsKICAgICAgInBvZG1hbl9sYWJlbHMiOiB7CiAgICAgICAgICJjb20uZG9ja2VyLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiLAogICAgICAgICAiaW8ucG9kbWFuLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiCiAgICAgIH0KICAgfSwKICAgImNuaVZlcnNpb24iOiAiMS4wLjAiLAogICAibmFtZSI6ICJ3NGJfZGF0YWJhc2UiLAogICAicGx1Z2lucyI6IFsKICAgICAgewogICAgICAgICAidHlwZSI6ICJicmlkZ2UiLAogICAgICAgICAiYnJpZGdlIjogImNuaS1wb2RtYW4zIiwKICAgICAgICAgImlzR2F0ZXdheSI6IGZhbHNlLAogICAgICAgICAiaGFpcnBpbk1vZGUiOiB0cnVlLAogICAgICAgICAiaXBhbSI6IHsKICAgICAgICAgICAgInR5cGUiOiAiaG9zdC1sb2NhbCIsCiAgICAgICAgICAgICJyb3V0ZXMiOiBbCiAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgImRzdCI6ICIwLjAuMC4wLzAiCiAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgXSwKICAgICAgICAgICAgInJhbmdlcyI6IFsKICAgICAgICAgICAgICAgWwogICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICJzdWJuZXQiOiAiMTAuMTIwLjIuMC8yNCIsCiAgICAgICAgICAgICAgICAgICAgICJnYXRld2F5IjogIjEwLjEyMC4yLjEiCiAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgXQogICAgICAgICAgICBdCiAgICAgICAgIH0KICAgICAgfSwKICAgICAgewogICAgICAgICAidHlwZSI6ICJwb3J0bWFwIiwKICAgICAgICAgImNhcGFiaWxpdGllcyI6IHsKICAgICAgICAgICAgInBvcnRNYXBwaW5ncyI6IHRydWUKICAgICAgICAgfQogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogImZpcmV3YWxsIiwKICAgICAgICAgImJhY2tlbmQiOiAiIgogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogInR1bmluZyIKICAgICAgfQogICBdCn0=",
+    "Labels": {
+      "com.docker.compose.project": "w4b",
+      "io.podman.compose.project": "w4b"
+    }
+  },
+  {
+    "Name": "w4b_frontend",
+    "CNIVersion": "1.0.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuMSIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcE1hc3EiOnRydWUsImlwYW0iOnsicmFuZ2VzIjpbW3siZ2F0ZXdheSI6IjEwLjExMC4wLjEiLCJzdWJuZXQiOiIxMC4xMTAuMC4wLzI0In1dXSwicm91dGVzIjpbeyJkc3QiOiIwLjAuMC4wLzAifV0sInR5cGUiOiJob3N0LWxvY2FsIn0sImlzR2F0ZXdheSI6dHJ1ZSwidHlwZSI6ImJyaWRnZSJ9"
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJiYWNrZW5kIjoiIiwidHlwZSI6ImZpcmV3YWxsIn0="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICAiYXJncyI6IHsKICAgICAgInBvZG1hbl9sYWJlbHMiOiB7CiAgICAgICAgICJjb20uZG9ja2VyLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiLAogICAgICAgICAiaW8ucG9kbWFuLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiCiAgICAgIH0KICAgfSwKICAgImNuaVZlcnNpb24iOiAiMS4wLjAiLAogICAibmFtZSI6ICJ3NGJfZnJvbnRlbmQiLAogICAicGx1Z2lucyI6IFsKICAgICAgewogICAgICAgICAidHlwZSI6ICJicmlkZ2UiLAogICAgICAgICAiYnJpZGdlIjogImNuaS1wb2RtYW4xIiwKICAgICAgICAgImlzR2F0ZXdheSI6IHRydWUsCiAgICAgICAgICJpcE1hc3EiOiB0cnVlLAogICAgICAgICAiaGFpcnBpbk1vZGUiOiB0cnVlLAogICAgICAgICAiaXBhbSI6IHsKICAgICAgICAgICAgInR5cGUiOiAiaG9zdC1sb2NhbCIsCiAgICAgICAgICAgICJyb3V0ZXMiOiBbCiAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgImRzdCI6ICIwLjAuMC4wLzAiCiAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgXSwKICAgICAgICAgICAgInJhbmdlcyI6IFsKICAgICAgICAgICAgICAgWwogICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICJzdWJuZXQiOiAiMTAuMTEwLjAuMC8yNCIsCiAgICAgICAgICAgICAgICAgICAgICJnYXRld2F5IjogIjEwLjExMC4wLjEiCiAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgXQogICAgICAgICAgICBdCiAgICAgICAgIH0KICAgICAgfSwKICAgICAgewogICAgICAgICAidHlwZSI6ICJwb3J0bWFwIiwKICAgICAgICAgImNhcGFiaWxpdGllcyI6IHsKICAgICAgICAgICAgInBvcnRNYXBwaW5ncyI6IHRydWUKICAgICAgICAgfQogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogImZpcmV3YWxsIiwKICAgICAgICAgImJhY2tlbmQiOiAiIgogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogInR1bmluZyIKICAgICAgfQogICBdCn0=",
+    "Labels": {
+      "com.docker.compose.project": "w4b",
+      "io.podman.compose.project": "w4b"
+    }
+  },
+  {
+    "Name": "w4b_monitoring",
+    "CNIVersion": "1.0.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuNCIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcGFtIjp7InJhbmdlcyI6W1t7ImdhdGV3YXkiOiIxMC4xMjAuMy4xIiwic3VibmV0IjoiMTAuMTIwLjMuMC8yNCJ9XV0sInJvdXRlcyI6W3siZHN0IjoiMC4wLjAuMC8wIn1dLCJ0eXBlIjoiaG9zdC1sb2NhbCJ9LCJpc0dhdGV3YXkiOmZhbHNlLCJ0eXBlIjoiYnJpZGdlIn0="
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJiYWNrZW5kIjoiIiwidHlwZSI6ImZpcmV3YWxsIn0="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICAiYXJncyI6IHsKICAgICAgInBvZG1hbl9sYWJlbHMiOiB7CiAgICAgICAgICJjb20uZG9ja2VyLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiLAogICAgICAgICAiaW8ucG9kbWFuLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiCiAgICAgIH0KICAgfSwKICAgImNuaVZlcnNpb24iOiAiMS4wLjAiLAogICAibmFtZSI6ICJ3NGJfbW9uaXRvcmluZyIsCiAgICJwbHVnaW5zIjogWwogICAgICB7CiAgICAgICAgICJ0eXBlIjogImJyaWRnZSIsCiAgICAgICAgICJicmlkZ2UiOiAiY25pLXBvZG1hbjQiLAogICAgICAgICAiaXNHYXRld2F5IjogZmFsc2UsCiAgICAgICAgICJoYWlycGluTW9kZSI6IHRydWUsCiAgICAgICAgICJpcGFtIjogewogICAgICAgICAgICAidHlwZSI6ICJob3N0LWxvY2FsIiwKICAgICAgICAgICAgInJvdXRlcyI6IFsKICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAiZHN0IjogIjAuMC4wLjAvMCIKICAgICAgICAgICAgICAgfQogICAgICAgICAgICBdLAogICAgICAgICAgICAicmFuZ2VzIjogWwogICAgICAgICAgICAgICBbCiAgICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICAgInN1Ym5ldCI6ICIxMC4xMjAuMy4wLzI0IiwKICAgICAgICAgICAgICAgICAgICAgImdhdGV3YXkiOiAiMTAuMTIwLjMuMSIKICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICBdCiAgICAgICAgICAgIF0KICAgICAgICAgfQogICAgICB9LAogICAgICB7CiAgICAgICAgICJ0eXBlIjogInBvcnRtYXAiLAogICAgICAgICAiY2FwYWJpbGl0aWVzIjogewogICAgICAgICAgICAicG9ydE1hcHBpbmdzIjogdHJ1ZQogICAgICAgICB9CiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgInR5cGUiOiAiZmlyZXdhbGwiLAogICAgICAgICAiYmFja2VuZCI6ICIiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgInR5cGUiOiAidHVuaW5nIgogICAgICB9CiAgIF0KfQ==",
+    "Labels": {
+      "com.docker.compose.project": "w4b",
+      "io.podman.compose.project": "w4b"
+    }
+  },
+  {
+    "Name": "w4b_vpn",
+    "CNIVersion": "1.0.0",
+    "DisableCheck": false,
+    "Plugins": [
+      {
+        "Network": {
+          "type": "bridge",
+          "ipam": {
+            "type": "host-local"
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJicmlkZ2UiOiJjbmktcG9kbWFuNSIsImhhaXJwaW5Nb2RlIjp0cnVlLCJpcE1hc3EiOnRydWUsImlwYW0iOnsicmFuZ2VzIjpbW3siZ2F0ZXdheSI6IjEwLjEyMC40LjEiLCJzdWJuZXQiOiIxMC4xMjAuNC4wLzI0In1dXSwicm91dGVzIjpbeyJkc3QiOiIwLjAuMC4wLzAifV0sInR5cGUiOiJob3N0LWxvY2FsIn0sImlzR2F0ZXdheSI6dHJ1ZSwidHlwZSI6ImJyaWRnZSJ9"
+      },
+      {
+        "Network": {
+          "type": "portmap",
+          "capabilities": {
+            "portMappings": true
+          },
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJjYXBhYmlsaXRpZXMiOnsicG9ydE1hcHBpbmdzIjp0cnVlfSwidHlwZSI6InBvcnRtYXAifQ=="
+      },
+      {
+        "Network": {
+          "type": "firewall",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJiYWNrZW5kIjoiIiwidHlwZSI6ImZpcmV3YWxsIn0="
+      },
+      {
+        "Network": {
+          "type": "tuning",
+          "ipam": {
+            
+          },
+          "dns": {
+            
+          }
+        },
+        "Bytes": "eyJ0eXBlIjoidHVuaW5nIn0="
+      }
+    ],
+    "Bytes": "ewogICAiYXJncyI6IHsKICAgICAgInBvZG1hbl9sYWJlbHMiOiB7CiAgICAgICAgICJjb20uZG9ja2VyLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiLAogICAgICAgICAiaW8ucG9kbWFuLmNvbXBvc2UucHJvamVjdCI6ICJ3NGIiCiAgICAgIH0KICAgfSwKICAgImNuaVZlcnNpb24iOiAiMS4wLjAiLAogICAibmFtZSI6ICJ3NGJfdnBuIiwKICAgInBsdWdpbnMiOiBbCiAgICAgIHsKICAgICAgICAgInR5cGUiOiAiYnJpZGdlIiwKICAgICAgICAgImJyaWRnZSI6ICJjbmktcG9kbWFuNSIsCiAgICAgICAgICJpc0dhdGV3YXkiOiB0cnVlLAogICAgICAgICAiaXBNYXNxIjogdHJ1ZSwKICAgICAgICAgImhhaXJwaW5Nb2RlIjogdHJ1ZSwKICAgICAgICAgImlwYW0iOiB7CiAgICAgICAgICAgICJ0eXBlIjogImhvc3QtbG9jYWwiLAogICAgICAgICAgICAicm91dGVzIjogWwogICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICJkc3QiOiAiMC4wLjAuMC8wIgogICAgICAgICAgICAgICB9CiAgICAgICAgICAgIF0sCiAgICAgICAgICAgICJyYW5nZXMiOiBbCiAgICAgICAgICAgICAgIFsKICAgICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgICAic3VibmV0IjogIjEwLjEyMC40LjAvMjQiLAogICAgICAgICAgICAgICAgICAgICAiZ2F0ZXdheSI6ICIxMC4xMjAuNC4xIgogICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgIF0KICAgICAgICAgICAgXQogICAgICAgICB9CiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgInR5cGUiOiAicG9ydG1hcCIsCiAgICAgICAgICJjYXBhYmlsaXRpZXMiOiB7CiAgICAgICAgICAgICJwb3J0TWFwcGluZ3MiOiB0cnVlCiAgICAgICAgIH0KICAgICAgfSwKICAgICAgewogICAgICAgICAidHlwZSI6ICJmaXJld2FsbCIsCiAgICAgICAgICJiYWNrZW5kIjogIiIKICAgICAgfSwKICAgICAgewogICAgICAgICAidHlwZSI6ICJ0dW5pbmciCiAgICAgIH0KICAgXQp9",
+    "Labels": {
+      "com.docker.compose.project": "w4b",
+      "io.podman.compose.project": "w4b"
+    }
+  }
+]

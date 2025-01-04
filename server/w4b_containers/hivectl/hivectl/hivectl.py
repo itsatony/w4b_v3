@@ -68,6 +68,10 @@ def cli(ctx, debug):
     if debug:
         logger.setLevel(logging.DEBUG)
     
+    # Always show compose file info
+    compose_path = Path.cwd() / 'compose.yaml'
+    logger.info(f"Loaded compose file: {compose_path}")
+    
     if ctx.invoked_subcommand is None:
         try:
             hive = get_hivectl()
@@ -104,39 +108,54 @@ def status(service: Optional[str], health: bool):
 @click.option('--force', is_flag=True, help='Force recreation of containers')
 @click.option('--skip-running', is_flag=True, help='Skip containers that are already running')
 def start(services: Tuple[str], force: bool, skip_running: bool):
-    """Start services"""
+    """Start services or service groups"""
     hive = get_hivectl()
     try:
-        # Check current state if specific services requested
         if services:
-            resolved_services = hive.container.resolve_services(list(services))
-            # Get status of resolved services
-            running = []
-            for service in resolved_services:
-                status = hive.container.get_container_status(service)
-                if status and status[0].state.lower() == 'running':
-                    running.append(service)
-            
-            if running and not force and not skip_running:
-                message = [
-                    "[yellow]These containers are already running:[/yellow]"
-                ]
-                for container in running:
-                    message.append(f"- {container}")
-                message.extend([
-                    "",
-                    "[cyan]Options:[/cyan]",
-                    f"1. Stop running containers first: hivectl stop {services[0]}",
-                    f"2. Force restart all: hivectl start {services[0]} --force",
-                    f"3. Start only stopped containers: hivectl start {services[0]} --skip-running"
-                ])
-                console.print("\n".join(message))
+            # Resolve and validate services/groups first
+            try:
+                resolved = hive.container.resolve_services(list(services))
+                if resolved:
+                    # Show the group resolution info
+                    for service in services:
+                        group_services = [s for s in resolved if hive.compose.services[s]['group'] == service]
+                        if group_services:
+                            console.print(f"[blue]Group '{service}'[/blue] resolves to: {', '.join(group_services)}")
+                    console.print(f"\n[green]Starting services in order:[/green] {', '.join(resolved)}\n")
+            except HiveCtlError as e:
+                ui.print_error(e)
                 return
 
-            # If skip_running, filter out running containers
+            # Check running state if needed
+            if not force and not skip_running:
+                running = []
+                for service in resolved:
+                    status = hive.container.get_container_status(service)
+                    if status and status[0].state.lower() == 'running':
+                        running.append(service)
+
+                if running:
+                    message = [
+                        "[yellow]These services are already running:[/yellow]"
+                    ]
+                    for service in running:
+                        message.append(f"- {service}")
+                    message.extend([
+                        "",
+                        "[cyan]Options:[/cyan]",
+                        f"1. Stop services first: hivectl stop {' '.join(services)}",
+                        f"2. Force restart all: hivectl start {' '.join(services)} --force",
+                        f"3. Start only stopped services: hivectl start {' '.join(services)} --skip-running"
+                    ])
+                    console.print("\n".join(message))
+                    return
+
             if skip_running:
-                services = tuple(s for s in services if s not in running)
-                if not services:
+                resolved = [s for s in resolved if not any(
+                    c.state.lower() == 'running' 
+                    for c in hive.container.get_container_status(s)
+                )]
+                if not resolved:
                     console.print("[green]All specified services are already running[/green]")
                     return
 
@@ -160,7 +179,21 @@ def start(services: Tuple[str], force: bool, skip_running: bool):
         
         # Show status after start
         time.sleep(2)  # Brief pause for containers to initialize
-        status(None, True)
+        console.print("\n[cyan]Status after start:[/cyan]")
+        if services:
+            # Get services to display status for
+            service_list = resolved if 'resolved' in locals() else list(services)
+            service_statuses = []
+            for svc in service_list:
+                status = hive.container.get_container_status(svc)
+                if status:
+                    service_statuses.extend(status)
+            ui.display_service_status(service_statuses, show_health=True)
+        else:
+            # Show status for all services
+            all_statuses = hive.container.get_container_status()
+            ui.display_service_status(all_statuses, show_health=True)
+            
     except Exception as e:
         ui.print_error(e)
         sys.exit(1)
@@ -355,7 +388,6 @@ def network_list():
     hive = get_hivectl()
     try:
         networks = hive.network.list_networks()
-        
         table = Table(title="Network Status")
         table.add_column("Network", style="cyan")
         table.add_column("Status", style="green")

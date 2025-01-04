@@ -14,7 +14,8 @@ from .exceptions import (
     ContainerNotFound,
     ContainerOperationError,
     HealthCheckError,
-    HealthCheckTimeout
+    HealthCheckTimeout,
+    HiveCtlError
 )
 from .utils import run_command
 
@@ -147,8 +148,17 @@ class ContainerManager:
         """Check container health with retries."""
         try:
             # Check if container exists first
-            status = self.get_container_status(service_name)
-            if not status or status[0].state == "not_found":
+            status_list = self.get_container_status(service_name)
+            if not status_list:
+                logger.debug(f"Container {service_name} not found, skipping health check")
+                return {
+                    'Status': 'not_found',
+                    'FailingStreak': 0,
+                    'Message': 'Container not found'
+                }
+                
+            status = status_list[0]  # Get first status
+            if status.state == "not_found":
                 logger.debug(f"Container {service_name} not found, skipping health check")
                 return {
                     'Status': 'not_found',
@@ -160,7 +170,8 @@ class ContainerManager:
             result = run_command(cmd)
             
             try:
-                return json.loads(result.stdout)
+                health_data = json.loads(result.stdout)
+                return health_data
             except json.JSONDecodeError:
                 logger.error(f"Failed to parse health check output: {result.stdout}")
                 return {
@@ -178,16 +189,7 @@ class ContainerManager:
             }
 
     def start_containers(self, services: Optional[List[str]] = None, force: bool = False) -> bool:
-        """
-        Start containers with dependency resolution.
-        
-        Args:
-            services: List of services to start
-            force: Force recreation of containers
-            
-        Returns:
-            bool: Success status
-        """
+        """Start containers with dependency resolution."""
         try:
             cmd_parts = ["podman-compose"]
             
@@ -200,13 +202,12 @@ class ContainerManager:
                 cmd_parts.append("up -d")
                 
             if services:
-                # Resolve service names from groups
-                resolved_services = self.resolve_services(services)
-                if not resolved_services:
+                resolved = self.resolve_services(services)
+                if not resolved:
                     raise ContainerError("No valid services found to start")
                     
-                logger.debug(f"Starting services: {resolved_services}")
-                cmd_parts.extend(resolved_services)
+                logger.debug(f"Starting services in order: {resolved}")
+                cmd_parts.extend(resolved)
                 
             cmd = " ".join(cmd_parts)
             logger.debug(f"Executing command: {cmd}")
@@ -218,18 +219,19 @@ class ContainerManager:
             raise ContainerOperationError(f"Failed to start containers: {e}")
 
     def stop_containers(self, services: Optional[List[str]] = None) -> bool:
-        """Stop containers."""
+        """Stop containers in reverse dependency order."""
         try:
-            cmd_parts = ["podman-compose", "down"]
-            
             if services:
-                # Resolve service names from groups
-                resolved_services = self.resolve_services(services)
-                if resolved_services:
-                    cmd_parts.extend(resolved_services)
-                    
-            cmd = " ".join(cmd_parts)
-            logger.debug(f"Executing command: {cmd}")
+                resolved = self.resolve_services(services)
+                # Reverse the order for stopping
+                resolved.reverse()
+            else:
+                resolved = None
+                
+            cmd = "podman-compose down"
+            if resolved:
+                cmd += f" {' '.join(resolved)}"
+                
             run_command(cmd)
             return True
             
@@ -300,31 +302,119 @@ class ContainerManager:
             logger.error(f"Failed to get container stats: {e}")
             return None
 
-    def resolve_services(self, services: Optional[List[str]] = None) -> List[str]:
+    def resolve_services(self, services: List[str]) -> List[str]:
         """
-        Resolve service names from group names or service names.
+        Resolve service names or groups to a list of service names.
+        Takes into account group names and service dependencies.
         
         Args:
-            services: List of service or group names to resolve
+            services: List of service or group names
             
         Returns:
-            List of actual service names
+            List[str]: Ordered list of service names
         """
-        if not services:
-            return list(self.compose.services.keys())
-            
-        resolved_services = set()
+        resolved = set()
+        
         for name in services:
-            # Check if it's a group name
-            if name in self.compose.groups:
-                group_services = self.compose.groups[name]['services']
-                logger.debug(f"Resolved group {name} to services: {group_services}")
-                resolved_services.update(group_services)
-            # Check if it's a service name
-            elif name in self.compose.services:
-                resolved_services.add(name)
-            else:
-                logger.warning(f"Unknown service or group: {name}")
-                raise ContainerError(f"Unknown service or group: {name}")
+            # Check if it's a direct service name
+            if name in self.compose.services:
+                logger.debug(f"Found direct service: {name}")
+                resolved.add(name)
+                continue
                 
-        return list(resolved_services)
+            # Check if it's a group name
+            group_services = self._get_services_by_group(name)
+            if group_services:
+                logger.debug(f"Found services for group {name}: {group_services}")
+                resolved.update(group_services)
+                continue
+                
+            raise HiveCtlError(f"No service or group found with name: {name}")
+            
+        if not resolved:
+            raise HiveCtlError(f"No services found to start for: {services}")
+            
+        # Get dependencies for all resolved services
+        all_services = set()
+        for service in resolved:
+            deps = self._get_service_dependencies(service)
+            logger.debug(f"Dependencies for {service}: {deps}")
+            all_services.update(deps)
+            all_services.add(service)
+            
+        # Return services in dependency order
+        ordered = self._order_by_dependencies(list(all_services))
+        logger.debug(f"Final ordered service list: {ordered}")
+        return ordered
+
+    def _get_services_by_group(self, group: str) -> List[str]:
+        """
+        Get all services belonging to a group.
+        Handles both direct service names and group names from labels.
+        """
+        logger.debug(f"Looking for services in group: {group}")
+        logger.debug(f"Available groups: {list(self.compose.groups.keys())}")
+        
+        # First check if group exists in our parsed groups
+        if group.lower() in (g.lower() for g in self.compose.groups):
+            # Find the actual group name with proper case
+            actual_group = next(g for g in self.compose.groups.keys() if g.lower() == group.lower())
+            services = self.compose.groups[actual_group]['services']
+            logger.debug(f"Found services in group {actual_group}: {services}")
+            return services
+            
+        # Fallback to checking labels directly
+        services = []
+        for service, config in self.compose.services.items():
+            service_group = config.get('group', '')
+            if service_group.lower() == group.lower():
+                services.append(service)
+                
+        logger.debug(f"Found services by label for group {group}: {services}")
+        return services
+
+    def _get_service_dependencies(self, service: str) -> List[str]:
+        """Get all dependencies for a service including transitive ones."""
+        deps = set()
+        service_config = self.compose.services.get(service, {})
+        
+        # Check declared dependencies in labels
+        labels = service_config.get('labels', {})
+        for label, value in labels.items():
+            if label.endswith('.depends_on') and value:
+                deps.update(value.split(','))
+                
+        # Check compose file dependencies
+        if 'depends_on' in service_config:
+            deps.update(service_config['depends_on'])
+            
+        # Get transitive dependencies
+        all_deps = deps.copy()
+        for dep in deps:
+            transitive = self._get_service_dependencies(dep)
+            all_deps.update(transitive)
+            
+        return list(all_deps)
+
+    def _order_by_dependencies(self, services: List[str]) -> List[str]:
+        """Order services by dependencies (topological sort)."""
+        ordered = []
+        seen = set()
+        
+        def visit(service):
+            if service in seen:
+                return
+            if service not in self.compose.services:
+                return
+                
+            seen.add(service)
+            deps = self._get_service_dependencies(service)
+            for dep in deps:
+                visit(dep)
+            ordered.append(service)
+            
+        for service in services:
+            visit(service)
+            
+        return ordered
+

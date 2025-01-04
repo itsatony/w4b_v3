@@ -17,77 +17,21 @@ logger = logging.getLogger('hivectl')
 
 def setup_logging():
     """Initialize logging configuration."""
-    log_dir = get_log_directory()
-    log_file = log_dir / 'hivectl.log'
+    # Set up root logger with default level
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)  # Default to INFO level
     
-    # Ensure log directory exists
-    if not ensure_log_directory(log_dir):
-        # Fall back to console-only logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(message)s',  # Simplified format
-            handlers=[RichHandler(
-                console=console,
-                show_time=False,  # Don't show timestamp in console
-                show_path=False   # Don't show file path
-            )]
-        )
-        return
-
-    # Set up logging configuration
-    config = {
-        'version': 1,
-        'formatters': {
-            'detailed': {
-                'format': '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
-                'datefmt': '%Y-%m-%d %H:%M:%S'
-            },
-            'simple': {
-                'format': '%(message)s',  # Simplified format for console
-                'datefmt': '%Y-%m-%d %H:%M:%S'
-            }
-        },
-        'handlers': {
-            'file': {
-                'class': 'logging.handlers.RotatingFileHandler',
-                'filename': str(log_file),
-                'maxBytes': 10485760,  # 10MB
-                'backupCount': 5,
-                'formatter': 'detailed',
-                'level': 'DEBUG'
-            },
-            'console': {
-                'class': 'rich.logging.RichHandler',
-                'formatter': 'simple',
-                'level': 'INFO',
-                'show_time': False,
-                'show_path': False
-            }
-        },
-        'loggers': {
-            'hivectl': {
-                'level': 'DEBUG',
-                'handlers': ['file', 'console'],
-                'propagate': False
-            }
-        },
-        'root': {
-            'level': 'INFO',
-            'handlers': ['console']
-        }
-    }
+    # Configure console handler with proper formatting
+    console_handler = RichHandler(console=console, show_time=False, show_path=False)
+    console_handler.setLevel(logging.INFO)  # Default to INFO level
+    root_logger.addHandler(console_handler)
     
-    try:
-        logging.config.dictConfig(config)
-        logger.debug(f"Logging initialized. Log file: {log_file}")
-    except Exception as e:
-        console.print(f"[red]Error setting up logging:[/red] {str(e)}")
-        console.print("[yellow]Falling back to basic logging configuration[/yellow]")
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(message)s',
-            handlers=[RichHandler(console=console, show_time=False, show_path=False)]
-        )
+    # Configure hivectl logger
+    hivectl_logger = logging.getLogger('hivectl')
+    hivectl_logger.setLevel(logging.INFO)  # Default to INFO level
+    
+    # Debug level will be set later if --debug flag is used
+    logger.debug("Logging initialized")
 
 def get_log_directory() -> Path:
     """

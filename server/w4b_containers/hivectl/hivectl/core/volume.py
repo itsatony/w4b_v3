@@ -40,6 +40,38 @@ class VolumeManager:
         self.compose = compose_config
         self._tmp_dir = None
 
+    def _parse_volume_df_output(self, output: str) -> Dict[str, str]:
+        """
+        Parse the output of 'podman system df -v' to get volume sizes.
+        
+        Args:
+            output: Raw command output
+            
+        Returns:
+            Dict[str, str]: Mapping of volume names to their sizes
+        """
+        volumes = {}
+        in_volumes_section = False
+        for line in output.splitlines():
+            if "Local Volumes space usage:" in line:
+                in_volumes_section = True
+                continue
+            if in_volumes_section:
+                if not line.strip() or line.startswith("VOLUME"):
+                    continue
+                if line.startswith("Containers space usage:"):  # Next section
+                    break
+                try:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        name = parts[0]
+                        size = parts[2]
+                        volumes[name] = size
+                except Exception as e:
+                    logger.debug(f"Failed to parse volume line: {line}, error: {e}")
+                    continue
+        return volumes
+
     def get_volume_status(self, volume_name: Optional[str] = None) -> List[VolumeStatus]:
         """Get status of volumes."""
         try:
@@ -54,6 +86,15 @@ class VolumeManager:
                 logger.error(f"Failed to parse volume list output: {result.stdout}")
                 return []
 
+            # Get volume sizes from system df
+            try:
+                df_cmd = "podman system df -v"
+                df_result = run_command(df_cmd)
+                volume_sizes = self._parse_volume_df_output(df_result.stdout)
+            except Exception as e:
+                logger.warning(f"Failed to get volume sizes: {e}")
+                volume_sizes = {}
+
             status_list = []
             for vol in volumes:
                 if volume_name and vol['Name'] != volume_name:
@@ -65,15 +106,8 @@ class VolumeManager:
                     detail_result = run_command(detail_cmd)
                     details = json.loads(detail_result.stdout)[0]
 
-                    # Get volume size if possible
-                    size = "N/A"
-                    try:
-                        if details['Mountpoint']:
-                            du_cmd = f"du -sh {details['Mountpoint']}"
-                            du_result = run_command(du_cmd)
-                            size = du_result.stdout.split()[0]
-                    except:
-                        pass
+                    # Get volume size from parsed df output
+                    size = volume_sizes.get(vol['Name'], 'N/A')
 
                     status = VolumeStatus(
                         name=vol['Name'],
@@ -171,39 +205,47 @@ class VolumeManager:
 
     def validate_volumes(self) -> Dict[str, dict]:
         """Validate all required volumes exist."""
-        validation = {}
         try:
-            existing_volumes = self.get_volume_status()
-            existing_names = {vol.name for vol in existing_volumes}
+            # Get all existing volumes
+            cmd = "podman volume ls --format json"
+            result = run_command(cmd)
+            volumes = json.loads(result.stdout) if result.stdout.strip() else []
+            if not isinstance(volumes, list):
+                volumes = [volumes] if volumes else []
+
+            # Get volume sizes
+            df_cmd = "podman system df -v"
+            df_result = run_command(df_cmd)
+            volume_sizes = self._parse_volume_df_output(df_result.stdout)
+
+            validation = {}
             
-            for service, volumes in self.compose.volumes.items():
-                service_volumes = {}
-                for vol_type, vol_config in volumes.items():
-                    volume_name = vol_config['name']
-                    volume_details = next(
-                        (v for v in existing_volumes if v.name == volume_name),
-                        None
-                    )
+            # Iterate through compose volumes
+            for service_name, service_volumes in self.compose.volumes.items():
+                if service_name not in validation:
+                    validation[service_name] = {}
                     
-                    service_volumes[vol_type] = {
-                        'name': volume_name,
-                        'exists': volume_name in existing_names,
-                        'details': volume_details.to_dict() if volume_details else None
+                for volume_name, volume_config in service_volumes.items():
+                    volume_full_name = volume_config['name']
+                    
+                    # Check if volume exists
+                    exists = any(v['Name'] == volume_full_name for v in volumes)
+                    size = volume_sizes.get(volume_full_name, 'N/A')
+                    
+                    validation[service_name][volume_name] = {
+                        'name': volume_full_name,
+                        'exists': exists,
+                        'details': {
+                            'size': size,
+                            'driver': 'local'
+                        } if exists else None
                     }
-                validation[service] = service_volumes
+
+            return validation
+
         except Exception as e:
             logger.error(f"Failed to validate volumes: {e}")
-            # Return empty validation result rather than failing
-            for service, volumes in self.compose.volumes.items():
-                validation[service] = {
-                    vol_type: {
-                        'name': vol_config['name'],
-                        'exists': False,
-                        'details': None
-                    } for vol_type, vol_config in volumes.items()
-                }
-
-        return validation
+            return {}
 
     def backup_volume(self, volume_name: str, backup_path: Path) -> bool:
         """

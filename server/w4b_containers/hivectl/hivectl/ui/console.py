@@ -228,27 +228,30 @@ class ConsoleUI:
 
     def display_volume_status(self, volumes: Dict[str, dict]):
         """Display volume status by service."""
-        table = Table(title="Volume Status", show_header=True, header_style="bold magenta")
-        table.add_column("Service", style="cyan", no_wrap=True)
+        table = Table(title="Volume Status")
+        table.add_column("Service", style="cyan")
         table.add_column("Type", style="yellow")
         table.add_column("Volume", style="green")
         table.add_column("Status", style="blue")
         table.add_column("Size", style="magenta")
         
-        for service, service_volumes in sorted(volumes.items()):
-            first_row = True
-            for vol_type, details in sorted(service_volumes.items()):
-                status = "[green]✓" if details['exists'] else "[red]✗"
-                size = details.get('details', {}).get('size', 'N/A')
-                
-                table.add_row(
-                    service if first_row else "",
-                    vol_type,
-                    details['name'],
-                    status,
-                    size
-                )
-                first_row = False
+        if not volumes:
+            table.add_row("No volumes found", "-", "-", "-", "-")
+        else:
+            for service, service_volumes in sorted(volumes.items()):
+                first_row = True
+                for vol_type, details in sorted(service_volumes.items()):
+                    status = "[green]✓" if details['exists'] else "[red]✗"
+                    size = details.get('details', {}).get('size', 'N/A')
+                    
+                    table.add_row(
+                        service if first_row else "",
+                        vol_type,
+                        details['name'],
+                        status,
+                        size
+                    )
+                    first_row = False
         
         self.console.print(table)
 
@@ -409,18 +412,21 @@ class ConsoleUI:
         table.add_column("Internal", style="blue")
         table.add_column("Containers", style="magenta", justify="right")
         
-        for net in sorted(networks, key=lambda n: n['name']):
-            status = "[green]✓" if net['exists'] else "[red]✗"
-            internal = "Yes" if net.get('internal', False) else "No"
-            containers = len(net.get('containers', []))
-            
-            table.add_row(
-                net['name'],
-                status,
-                net.get('subnet', 'N/A'),
-                internal,
-                str(containers)
-            )
+        if not networks:
+            table.add_row("No networks found", "-", "-", "-", "-")
+        else:
+            for net in sorted(networks, key=lambda n: n['name']):
+                status = "[green]✓" if net['exists'] else "[red]✗"
+                internal = "Yes" if net.get('internal', False) else "No"
+                containers = str(net.get('containers', 0))
+                
+                table.add_row(
+                    net['name'],
+                    status,
+                    net.get('subnet', 'N/A'),
+                    internal,
+                    containers
+                )
         
         self.console.print(table)
 
