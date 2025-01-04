@@ -29,6 +29,7 @@ from hivectl.ui.console import ConsoleUI
 VERSION = "2.0.0"
 console = Console()
 ui = ConsoleUI()
+logger = logging.getLogger(__name__)
 
 class HiveCtl:
     """Main HiveCtl application class."""
@@ -62,15 +63,20 @@ def get_hivectl() -> HiveCtl:
 @click.pass_context
 def cli(ctx, debug):
     """HiveCtl - Management tool for containerized infrastructure"""
-    setup_logging()
-    logger = logging.getLogger('hivectl')
+    # Initialize logging with debug flag
+    setup_logging(debug)
+    
+    # Store debug setting in context for subcommands
+    ctx.ensure_object(dict)
+    ctx.obj['DEBUG'] = debug
     
     if debug:
-        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled")
+        logger.debug(f"Current working directory: {Path.cwd()}")
     
     # Always show compose file info
     compose_path = Path.cwd() / 'compose.yaml'
-    logger.info(f"Loaded compose file: {compose_path}")
+    logger.info(f"Using compose file: {compose_path}")
     
     if ctx.invoked_subcommand is None:
         try:

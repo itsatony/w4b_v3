@@ -15,23 +15,38 @@ from .exceptions import CommandError, ComposeFileNotFound
 console = Console()
 logger = logging.getLogger('hivectl')
 
-def setup_logging():
-    """Initialize logging configuration."""
-    # Set up root logger with default level
+def setup_logging(debug: bool = False):
+    """
+    Initialize logging configuration.
+    
+    Args:
+        debug (bool): Whether to enable debug logging
+    """
+    # Set up root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)  # Default to INFO level
+    root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    
+    # Remove any existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
     
     # Configure console handler with proper formatting
-    console_handler = RichHandler(console=console, show_time=False, show_path=False)
-    console_handler.setLevel(logging.INFO)  # Default to INFO level
+    console_handler = RichHandler(
+        console=console,
+        show_time=False,
+        show_path=False,
+        level=logging.DEBUG if debug else logging.INFO
+    )
+    
+    # Add the handler to root logger
     root_logger.addHandler(console_handler)
     
     # Configure hivectl logger
     hivectl_logger = logging.getLogger('hivectl')
-    hivectl_logger.setLevel(logging.INFO)  # Default to INFO level
+    hivectl_logger.setLevel(logging.DEBUG if debug else logging.INFO)
     
-    # Debug level will be set later if --debug flag is used
-    logger.debug("Logging initialized")
+    # Log startup info
+    logger.debug("Debug logging enabled" if debug else "Logging initialized")
 
 def get_log_directory() -> Path:
     """
