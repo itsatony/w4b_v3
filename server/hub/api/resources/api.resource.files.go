@@ -11,15 +11,15 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/itsatony/w4b_v3/server/hub/internal/errors"
+	"github.com/itsatony/w4b_v3/server/hub/internal/hubservice"
 	"github.com/itsatony/w4b_v3/server/hub/internal/models"
-	"github.com/itsatony/w4b_v3/server/hub/internal/service"
 	nuts "github.com/vaudience/go-nuts"
 )
 
 // FileHandlers encapsulates the file-related HTTP handlers
 type FileHandlers struct {
-	service *service.Service
-	config  FileConfig
+	hubservice *hubservice.HubService
+	config     FileConfig
 }
 
 type FileConfig struct {
@@ -84,8 +84,8 @@ func (h *FileHandlers) UploadFile(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 	}
 
-	// Store file
-	err = h.service.StoreFile(r.Context(), sensorFile, file)
+	// Store file - update to pass the FileHeader directly
+	err = h.hubservice.Files.Store(r.Context(), sensorFile, header)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to store file", err).WithRequestID(requestID))
 		return
@@ -107,7 +107,7 @@ func (h *FileHandlers) GetFile(w http.ResponseWriter, r *http.Request) {
 	requestID := nuts.NID("req", 12)
 	fileID := vars["id"]
 
-	file, err := h.service.GetFile(r.Context(), fileID)
+	file, err := h.hubservice.Files.Get(r.Context(), fileID)
 	if err != nil {
 		respondWithError(w, errors.NewNotFoundError("file not found", err).WithRequestID(requestID))
 		return
@@ -119,7 +119,7 @@ func (h *FileHandlers) GetFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.FormatInt(file.FileSize, 10))
 
 	// Stream file
-	if err := h.service.StreamFile(r.Context(), file, w); err != nil {
+	if err := h.hubservice.Files.StreamFile(r.Context(), file, w); err != nil {
 		nuts.L.Errorf("[FileHandler] Failed to stream file %s: %v", fileID, err)
 		return
 	}
@@ -138,7 +138,7 @@ func (h *FileHandlers) DeleteFile(w http.ResponseWriter, r *http.Request) {
 	requestID := nuts.NID("req", 12)
 	fileID := vars["id"]
 
-	err := h.service.DeleteFile(r.Context(), fileID)
+	err := h.hubservice.Files.Delete(r.Context(), fileID)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to delete file", err).WithRequestID(requestID))
 		return
@@ -161,7 +161,7 @@ func (h *FileHandlers) ListHiveFiles(w http.ResponseWriter, r *http.Request) {
 	hiveID := vars["hiveId"]
 	fileType := r.URL.Query().Get("type")
 
-	files, err := h.service.ListHiveFiles(r.Context(), hiveID, fileType)
+	files, err := h.hubservice.Files.ListByHive(r.Context(), hiveID, fileType)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to list files", err).WithRequestID(requestID))
 		return

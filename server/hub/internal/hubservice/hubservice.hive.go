@@ -1,4 +1,4 @@
-package service
+package hubservice
 
 import (
 	"context"
@@ -18,6 +18,9 @@ type HiveService interface {
 	DeleteHive(ctx context.Context, id string) error
 	ListHives(ctx context.Context, offset, limit int) ([]*models.Hive, error)
 	GetHiveStatus(ctx context.Context, id string) (*HiveStatus, error)
+	CreateHiveComment(ctx context.Context, hiveID string, comment *models.HiveComment) error
+	ListHiveComments(ctx context.Context, hiveID string, offset, limit int) ([]*models.HiveComment, error)
+	DeleteHiveComment(ctx context.Context, hiveID, commentID string) error
 }
 
 type HiveStatus struct {
@@ -29,7 +32,7 @@ type HiveStatus struct {
 }
 
 // CreateHive creates a new hive with proper validation and initialization
-func (s *Service) CreateHive(ctx context.Context, hive *models.Hive) error {
+func (s *HubService) CreateHive(ctx context.Context, hive *models.Hive) error {
 	// Validate required fields
 	if hive.Name == "" {
 		return errors.NewValidationError("hive name is required", nil)
@@ -55,13 +58,13 @@ func (s *Service) CreateHive(ctx context.Context, hive *models.Hive) error {
 	}
 
 	nuts.L.Infof("[HiveService] Creating new hive: %s (%s)", hive.Name, hive.ID)
-	return s.hives.Create(ctx, hive)
+	return s.Hives.Create(ctx, hive)
 }
 
 // UpdateHive updates an existing hive with role-based access control
-func (s *Service) UpdateHive(ctx context.Context, hive *models.Hive) error {
+func (s *HubService) UpdateHive(ctx context.Context, hive *models.Hive) error {
 	// Get existing hive to verify existence and compare changes
-	existing, err := s.hives.Get(ctx, hive.ID)
+	existing, err := s.Hives.Get(ctx, hive.ID)
 	if err != nil {
 		return err
 	}
@@ -78,12 +81,12 @@ func (s *Service) UpdateHive(ctx context.Context, hive *models.Hive) error {
 	hive.UpdatedAt = time.Now()
 
 	nuts.L.Infof("[HiveService] Updating hive %s, fields changed: %v", hive.ID, updatedFields)
-	return s.hives.Update(ctx, hive)
+	return s.Hives.Update(ctx, hive)
 }
 
 // GetHive retrieves a hive with role-based field filtering
-func (s *Service) GetHive(ctx context.Context, id string) (*models.Hive, error) {
-	hive, err := s.hives.Get(ctx, id)
+func (s *HubService) GetHive(ctx context.Context, id string) (*models.Hive, error) {
+	hive, err := s.Hives.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +109,9 @@ func (s *Service) GetHive(ctx context.Context, id string) (*models.Hive, error) 
 }
 
 // DeleteHive handles hive deletion with cascading cleanup
-func (s *Service) DeleteHive(ctx context.Context, id string) error {
+func (s *HubService) DeleteHive(ctx context.Context, id string) error {
 	// Get hive to verify existence
-	hive, err := s.hives.Get(ctx, id)
+	hive, err := s.Hives.Get(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -119,11 +122,11 @@ func (s *Service) DeleteHive(ctx context.Context, id string) error {
 	}
 
 	nuts.L.Infof("[HiveService] Deleting hive: %s", id)
-	return s.hives.Delete(ctx, id)
+	return s.Hives.Delete(ctx, id)
 }
 
 // ListHives retrieves a paginated list of hives with role-based filtering
-func (s *Service) ListHives(ctx context.Context, offset, limit int) ([]*models.Hive, error) {
+func (s *HubService) ListHives(ctx context.Context, offset, limit int) ([]*models.Hive, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50 // Default limit
 	}
@@ -131,7 +134,7 @@ func (s *Service) ListHives(ctx context.Context, offset, limit int) ([]*models.H
 		offset = 0
 	}
 
-	hives, err := s.hives.List(ctx, offset, limit)
+	hives, err := s.Hives.List(ctx, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -158,21 +161,21 @@ func (s *Service) ListHives(ctx context.Context, offset, limit int) ([]*models.H
 }
 
 // GetHiveStatus retrieves comprehensive hive status information
-func (s *Service) GetHiveStatus(ctx context.Context, id string) (*HiveStatus, error) {
+func (s *HubService) GetHiveStatus(ctx context.Context, id string) (*HiveStatus, error) {
 	hive, err := s.GetHive(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get latest sensor readings
-	readings, err := s.sensorData.GetLatestReadingsByHive(ctx, id)
+	readings, err := s.SensorData.GetLatestReadingsByHive(ctx, id)
 	if err != nil {
 		nuts.L.Warnf("[HiveService] Failed to get latest readings for hive %s: %v", id, err)
 		readings = make(map[string]*models.SensorReading)
 	}
 
 	// Get latest files (images and sounds)
-	files, err := s.files.GetLatestFiles(ctx, id, "", []string{"image", "sound"})
+	files, err := s.Files.GetLatestFiles(ctx, id, "", []string{"image", "sound"})
 	if err != nil {
 		nuts.L.Warnf("[HiveService] Failed to get latest files for hive %s: %v", id, err)
 		files = []*models.SensorFile{}
@@ -194,20 +197,20 @@ func (s *Service) GetHiveStatus(ctx context.Context, id string) (*HiveStatus, er
 }
 
 // UpdateHiveLastSeen updates the last seen timestamp for a hive
-func (s *Service) UpdateHiveLastSeen(ctx context.Context, id string) error {
-	return s.hives.UpdateLastSeen(ctx, id, time.Now())
+func (s *HubService) UpdateHiveLastSeen(ctx context.Context, id string) error {
+	return s.Hives.UpdateLastSeen(ctx, id, time.Now())
 }
 
 // Helper functions
 
-func (s *Service) cleanupHiveData(ctx context.Context, hive *models.Hive) error {
+func (s *HubService) cleanupHiveData(ctx context.Context, hive *models.Hive) error {
 	// Delete sensor data
-	if err := s.sensorData.DeleteOldData(ctx, time.Now()); err != nil {
+	if err := s.SensorData.DeleteOldData(ctx, time.Now()); err != nil {
 		return err
 	}
 
 	// Delete files
-	if err := s.files.DeleteOldFiles(ctx, time.Now()); err != nil {
+	if err := s.Files.DeleteOldFiles(ctx, time.Now()); err != nil {
 		return err
 	}
 

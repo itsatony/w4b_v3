@@ -67,7 +67,7 @@ type HiveComment struct {
 	ID        string    `json:"id" db:"id"`
 	HiveID    string    `json:"hive_id" db:"hive_id"`
 	UserID    string    `json:"user_id" db:"user_id"`
-	Comment   string    `json:"comment" db:"comment"`
+	Text      string    `json:"text" db:"text"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }

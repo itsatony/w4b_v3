@@ -27,9 +27,10 @@ type SensorFile struct {
 	ID        string    `json:"id" db:"id"`
 	HiveID    string    `json:"hive_id" db:"hive_id"`
 	SensorID  string    `json:"sensor_id" db:"sensor_id"`
-	Type      string    `json:"type" db:"type"` // "image" or "sound"
-	Path      string    `json:"path" db:"path"` // Relative path in storage
-	Size      int64     `json:"size" db:"size"` // File size in bytes
+	FileName  string    `json:"file_name" db:"file_name"`
+	FileType  string    `json:"file_type" db:"file_type"` // "image" or "sound"
+	FileSize  int64     `json:"file_size" db:"file_size"` // File size in bytes
+	FilePath  string    `json:"file_path" db:"file_path"` // Relative path in storage
 	MimeType  string    `json:"mime_type" db:"mime_type"`
 	Timestamp time.Time `json:"timestamp" db:"timestamp"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`

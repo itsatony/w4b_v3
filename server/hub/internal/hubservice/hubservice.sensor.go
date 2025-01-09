@@ -1,4 +1,4 @@
-package service
+package hubservice
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type SensorService interface {
 }
 
 // CreateSensor creates a new sensor with validation and initialization
-func (s *Service) CreateSensor(ctx context.Context, sensor *models.Sensor) error {
+func (s *HubService) CreateSensor(ctx context.Context, sensor *models.Sensor) error {
 	// Validate required fields
 	if err := s.validateSensor(sensor); err != nil {
 		return err
@@ -50,12 +50,12 @@ func (s *Service) CreateSensor(ctx context.Context, sensor *models.Sensor) error
 	nuts.L.Infof("[SensorService] Creating new sensor: %s (type: %s) for hive: %s",
 		sensor.Name, sensor.Type, sensor.HiveID)
 
-	return s.sensors.Create(ctx, sensor)
+	return s.Sensors.Create(ctx, sensor)
 }
 
 // UpdateSensor updates sensor configuration with role-based access control
-func (s *Service) UpdateSensor(ctx context.Context, sensor *models.Sensor) error {
-	existing, err := s.sensors.Get(ctx, sensor.ID)
+func (s *HubService) UpdateSensor(ctx context.Context, sensor *models.Sensor) error {
+	existing, err := s.Sensors.Get(ctx, sensor.ID)
 	if err != nil {
 		return err
 	}
@@ -69,12 +69,12 @@ func (s *Service) UpdateSensor(ctx context.Context, sensor *models.Sensor) error
 	sensor.UpdatedAt = time.Now()
 
 	nuts.L.Infof("[SensorService] Updating sensor %s, fields changed: %v", sensor.ID, updatedFields)
-	return s.sensors.Update(ctx, sensor)
+	return s.Sensors.Update(ctx, sensor)
 }
 
 // GetSensor retrieves a sensor with role-based field filtering
-func (s *Service) GetSensor(ctx context.Context, id string) (*models.Sensor, error) {
-	sensor, err := s.sensors.Get(ctx, id)
+func (s *HubService) GetSensor(ctx context.Context, id string) (*models.Sensor, error) {
+	sensor, err := s.Sensors.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func (s *Service) GetSensor(ctx context.Context, id string) (*models.Sensor, err
 }
 
 // RecordSensorReading handles new sensor readings with validation and anomaly detection
-func (s *Service) RecordSensorReading(ctx context.Context, sensorID string, value float64, timestamp time.Time) error {
-	sensor, err := s.sensors.Get(ctx, sensorID)
+func (s *HubService) RecordSensorReading(ctx context.Context, sensorID string, value float64, timestamp time.Time) error {
+	sensor, err := s.Sensors.Get(ctx, sensorID)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (s *Service) RecordSensorReading(ctx context.Context, sensorID string, valu
 	}
 
 	// Record the reading
-	err = s.sensorData.InsertReading(ctx, sensorID, calibratedValue, timestamp)
+	err = s.SensorData.InsertReading(ctx, sensorID, calibratedValue, timestamp)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (s *Service) RecordSensorReading(ctx context.Context, sensorID string, valu
 	// Update sensor's last value
 	sensor.LastValue = calibratedValue
 	sensor.LastValueTime = timestamp
-	err = s.sensors.UpdateLastValue(ctx, sensorID, calibratedValue, timestamp)
+	err = s.Sensors.UpdateLastValue(ctx, sensorID, calibratedValue, timestamp)
 	if err != nil {
 		nuts.L.Warnf("[SensorService] Failed to update sensor last value: %v", err)
 	}
@@ -135,7 +135,7 @@ func (s *Service) RecordSensorReading(ctx context.Context, sensorID string, valu
 }
 
 // GetSensorReadings retrieves sensor readings with aggregation based on the time interval
-func (s *Service) GetSensorReadings(ctx context.Context, sensorID string, start, end time.Time, interval string) ([]models.SensorAggregate, error) {
+func (s *HubService) GetSensorReadings(ctx context.Context, sensorID string, start, end time.Time, interval string) ([]models.SensorAggregate, error) {
 	if end.Before(start) {
 		return nil, errors.NewValidationError("end time must be after start time", nil)
 	}
@@ -143,12 +143,12 @@ func (s *Service) GetSensorReadings(ctx context.Context, sensorID string, start,
 	// Validate interval and adjust if necessary based on time range
 	interval = s.determineAppropriateSensorReadingInterval(start, end, interval)
 
-	return s.sensorData.GetAggregates(ctx, sensorID, start, end, interval)
+	return s.SensorData.GetAggregates(ctx, sensorID, start, end, interval)
 }
 
 // CalibrateSensor updates sensor calibration information
-func (s *Service) CalibrateSensor(ctx context.Context, sensorID string, calibration models.CalibrationInfo) error {
-	sensor, err := s.sensors.Get(ctx, sensorID)
+func (s *HubService) CalibrateSensor(ctx context.Context, sensorID string, calibration models.CalibrationInfo) error {
+	sensor, err := s.Sensors.Get(ctx, sensorID)
 	if err != nil {
 		return err
 	}
@@ -165,11 +165,11 @@ func (s *Service) CalibrateSensor(ctx context.Context, sensorID string, calibrat
 	nuts.L.Infof("[SensorService] Updating calibration for sensor %s using method %s",
 		sensorID, calibration.Method)
 
-	return s.sensors.Update(ctx, sensor)
+	return s.Sensors.Update(ctx, sensor)
 }
 
 // SetHighResolutionMode enables high-frequency data collection for a specified duration
-func (s *Service) SetHighResolutionMode(ctx context.Context, sensorID string, duration time.Duration) error {
+func (s *HubService) SetHighResolutionMode(ctx context.Context, sensorID string, duration time.Duration) error {
 	if duration > 30*time.Minute {
 		return errors.NewValidationError("high resolution mode limited to 30 minutes", nil)
 	}
@@ -189,9 +189,40 @@ func (s *Service) SetHighResolutionMode(ctx context.Context, sensorID string, du
 	return nil
 }
 
+// ListSensors retrieves a paginated list of sensors with optional filtering
+func (s *HubService) ListSensors(ctx context.Context, filters models.SensorFilters, page, limit int) (int64, []*models.Sensor, error) {
+	return s.Sensors.List(ctx, filters, page, limit)
+}
+
+// DeleteSensor removes a sensor and its associated data
+func (s *HubService) DeleteSensor(ctx context.Context, id string) error {
+	// First ensure the sensor exists
+	sensor, err := s.Sensors.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Begin transaction from sensor repository
+	tx, err := s.Sensors.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete sensor and its data using a single transaction
+	if err := s.Sensors.DeleteWithData(ctx, id, tx); err != nil {
+		return err
+	}
+
+	nuts.L.Infof("[SensorService] Deleted sensor %s (type: %s) from hive: %s",
+		sensor.ID, sensor.Type, sensor.HiveID)
+
+	return tx.Commit()
+}
+
 // Helper functions
 
-func (s *Service) validateSensor(sensor *models.Sensor) error {
+func (s *HubService) validateSensor(sensor *models.Sensor) error {
 	if sensor.Name == "" {
 		return errors.NewValidationError("sensor name is required", nil)
 	}
@@ -204,7 +235,7 @@ func (s *Service) validateSensor(sensor *models.Sensor) error {
 	return nil
 }
 
-func (s *Service) validateReading(sensor *models.Sensor, value float64) error {
+func (s *HubService) validateReading(sensor *models.Sensor, value float64) error {
 	if value < sensor.MinValue || value > sensor.MaxValue {
 		return errors.NewValidationError(
 			fmt.Sprintf("value %f outside sensor range [%f, %f]",
@@ -215,7 +246,7 @@ func (s *Service) validateReading(sensor *models.Sensor, value float64) error {
 	return nil
 }
 
-func (s *Service) applySensorCalibration(sensor *models.Sensor, value float64) (float64, error) {
+func (s *HubService) applySensorCalibration(sensor *models.Sensor, value float64) (float64, error) {
 	// the real calibration will be done on the edge device.
 	// here, we only store it.
 	if sensor.Calibration.Method == "" {
@@ -236,7 +267,7 @@ func (s *Service) applySensorCalibration(sensor *models.Sensor, value float64) (
 	// }
 }
 
-func (s *Service) validateCalibration(calibration models.CalibrationInfo) error {
+func (s *HubService) validateCalibration(calibration models.CalibrationInfo) error {
 	if calibration.Method == "" {
 		return errors.NewValidationError("calibration method is required", nil)
 	}
@@ -244,25 +275,25 @@ func (s *Service) validateCalibration(calibration models.CalibrationInfo) error 
 	return nil
 }
 
-func (s *Service) disableHighResolutionMode(ctx context.Context, sensorID string) error {
+func (s *HubService) disableHighResolutionMode(ctx context.Context, sensorID string) error {
 	// TODO: determine how we will implement the endabledisable High-Resolution-Mode feature
 	nuts.L.Infof("[SensorService] Disabling high resolution mode for sensor %s", sensorID)
 	return nil
 }
 
-func (s *Service) verifyHiveAccess(ctx context.Context, hiveID string) error {
+func (s *HubService) verifyHiveAccess(ctx context.Context, hiveID string) error {
 	// TODO: implement hive access verification
 	return nil
 }
 
-func (s *Service) handleAnomalyDetection(ctx context.Context, sensor *models.Sensor, value float64) {
+func (s *HubService) handleAnomalyDetection(ctx context.Context, sensor *models.Sensor, value float64) {
 	if sensor.Type == models.Temperature {
 		s.handleTemperatureAnomaly(ctx, sensor, value)
 	}
 	// Add other anomaly detection handlers as needed
 }
 
-func (s *Service) handleTemperatureAnomaly(ctx context.Context, sensor *models.Sensor, value float64) {
+func (s *HubService) handleTemperatureAnomaly(ctx context.Context, sensor *models.Sensor, value float64) {
 	const tempSpikeThreshold = 5.0 // °C
 	lastValue := sensor.LastValue
 
@@ -274,7 +305,7 @@ func (s *Service) handleTemperatureAnomaly(ctx context.Context, sensor *models.S
 	}
 }
 
-func (s *Service) determineAppropriateSensorReadingInterval(start, end time.Time, requestedInterval string) string {
+func (s *HubService) determineAppropriateSensorReadingInterval(start, end time.Time, requestedInterval string) string {
 	// if the interval is smaller than min or larger than max, adjust it - otherwise, return it as is
 	duration := end.Sub(start)
 	switch {

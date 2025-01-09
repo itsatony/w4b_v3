@@ -6,7 +6,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/itsatony/w4b_v3/server/hub/api/middleware"
 	"github.com/itsatony/w4b_v3/server/hub/api/resources"
-	"github.com/itsatony/w4b_v3/server/hub/internal/service"
+	"github.com/itsatony/w4b_v3/server/hub/internal/hubservice"
 )
 
 type Router struct {
@@ -15,7 +15,7 @@ type Router struct {
 	resources *resources.Resources
 }
 
-func NewRouter(svc *service.Service, keycloakConfig middleware.KeycloakConfig) *Router {
+func NewRouter(svc *hubservice.HubService, keycloakConfig middleware.KeycloakConfig) *Router {
 	r := &Router{
 		router:    mux.NewRouter(),
 		auth:      middleware.NewKeycloakMiddleware(keycloakConfig),
@@ -40,36 +40,30 @@ func (r *Router) setupRoutes() {
 
 	// Hives
 	hives := protected.PathPrefix("/hives").Subrouter()
-	hives.HandleFunc("", r.resources.ListHives).Methods(http.MethodGet)
-	hives.HandleFunc("", r.resources.CreateHive).Methods(http.MethodPost)
-	hives.HandleFunc("/{id}", r.resources.GetHive).Methods(http.MethodGet)
-	hives.HandleFunc("/{id}", r.resources.UpdateHive).Methods(http.MethodPut)
-	hives.HandleFunc("/{id}", r.resources.DeleteHive).Methods(http.MethodDelete)
-	hives.HandleFunc("/{id}/status", r.resources.GetHiveStatus).Methods(http.MethodGet)
-	hives.HandleFunc("/{id}/comments", r.resources.ListHiveComments).Methods(http.MethodGet)
-	hives.HandleFunc("/{id}/comments", r.resources.AddHiveComment).Methods(http.MethodPost)
+	hives.HandleFunc("", r.resources.Hives.ListHives).Methods(http.MethodGet)
+	hives.HandleFunc("", r.resources.Hives.CreateHive).Methods(http.MethodPost)
+	hives.HandleFunc("/{id}", r.resources.Hives.GetHive).Methods(http.MethodGet)
+	hives.HandleFunc("/{id}", r.resources.Hives.UpdateHive).Methods(http.MethodPut)
+	hives.HandleFunc("/{id}", r.resources.Hives.DeleteHive).Methods(http.MethodDelete)
+	hives.HandleFunc("/{id}/status", r.resources.Hives.GetHiveStatus).Methods(http.MethodGet)
+	hives.HandleFunc("/{id}/comments", r.resources.Hives.ListHiveComments).Methods(http.MethodGet)
+	hives.HandleFunc("/{id}/comments", r.resources.Hives.CreateHiveComment).Methods(http.MethodPost)
 
 	// Sensors
 	sensors := protected.PathPrefix("/sensors").Subrouter()
-	sensors.HandleFunc("", r.resources.ListSensors).Methods(http.MethodGet)
-	sensors.HandleFunc("", r.resources.CreateSensor).Methods(http.MethodPost)
-	sensors.HandleFunc("/{id}", r.resources.GetSensor).Methods(http.MethodGet)
-	sensors.HandleFunc("/{id}", r.resources.UpdateSensor).Methods(http.MethodPut)
-	sensors.HandleFunc("/{id}", r.resources.DeleteSensor).Methods(http.MethodDelete)
-	sensors.HandleFunc("/{id}/readings", r.resources.GetSensorReadings).Methods(http.MethodGet)
-	sensors.HandleFunc("/{id}/calibration", r.resources.CalibrateSensor).Methods(http.MethodPost)
+	sensors.HandleFunc("", r.resources.Sensors.ListSensors).Methods(http.MethodGet)
+	sensors.HandleFunc("", r.resources.Sensors.CreateSensor).Methods(http.MethodPost)
+	sensors.HandleFunc("/{id}", r.resources.Sensors.GetSensor).Methods(http.MethodGet)
+	sensors.HandleFunc("/{id}", r.resources.Sensors.UpdateSensor).Methods(http.MethodPut)
+	sensors.HandleFunc("/{id}", r.resources.Sensors.DeleteSensor).Methods(http.MethodDelete)
+	sensors.HandleFunc("/{id}/readings", r.resources.Sensors.GetSensorReadings).Methods(http.MethodGet)
+	sensors.HandleFunc("/{id}/calibration", r.resources.Sensors.CalibrateSensor).Methods(http.MethodPost)
 
 	// Files
 	files := protected.PathPrefix("/files").Subrouter()
-	files.HandleFunc("", r.resources.UploadFile).Methods(http.MethodPost)
-	files.HandleFunc("/{id}", r.resources.GetFile).Methods(http.MethodGet)
-	files.HandleFunc("/{id}", r.resources.DeleteFile).Methods(http.MethodDelete)
-
-	// Edge device specific routes (requires edgedevice role)
-	edge := protected.PathPrefix("/edge").Subrouter()
-	edge.Use(r.auth.RequireRoles([]string{"edgedevice"}))
-	edge.HandleFunc("/readings", r.resources.RecordReadings).Methods(http.MethodPost)
-	edge.HandleFunc("/status", r.resources.UpdateEdgeStatus).Methods(http.MethodPost)
+	files.HandleFunc("", r.resources.Files.UploadFile).Methods(http.MethodPost)
+	files.HandleFunc("/{id}", r.resources.Files.GetFile).Methods(http.MethodGet)
+	files.HandleFunc("/{id}", r.resources.Files.DeleteFile).Methods(http.MethodDelete)
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {

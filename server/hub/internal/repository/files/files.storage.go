@@ -50,7 +50,7 @@ func (r *FileRepo) Store(ctx context.Context, file *models.SensorFile, fileData 
 	}
 
 	// Validate mime type
-	if !r.isAllowedMimeType(file.Type, file.MimeType) {
+	if !r.isAllowedMimeType(file.FileType, file.MimeType) {
 		return errors.NewValidationError("unsupported file type", nil)
 	}
 
@@ -59,7 +59,7 @@ func (r *FileRepo) Store(ctx context.Context, file *models.SensorFile, fileData 
 	if err != nil {
 		return err
 	}
-	file.Path = filePath
+	file.FilePath = filePath
 
 	// Create directory structure
 	dirPath := filepath.Dir(filePath)
@@ -131,9 +131,9 @@ func (r *FileRepo) ListByHive(ctx context.Context, hiveID string, fileType strin
 		file := &models.SensorFile{
 			ID:        filepath.Base(path),
 			HiveID:    hiveID,
-			Path:      relPath,
-			Size:      info.Size(),
-			Type:      determineFileType(path),
+			FilePath:  relPath,
+			FileSize:  info.Size(),
+			FileType:  determineFileType(path),
 			Timestamp: info.ModTime(),
 			CreatedAt: info.ModTime(),
 		}
@@ -154,7 +154,7 @@ func (r *FileRepo) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	err = os.Remove(filepath.Join(r.config.BasePath, file.Path))
+	err = os.Remove(filepath.Join(r.config.BasePath, file.FilePath))
 	if err != nil {
 		return errors.NewInternalError("failed to delete file", err)
 	}
@@ -192,7 +192,7 @@ func (r *FileRepo) DeleteOldFiles(ctx context.Context, before time.Time) error {
 func (r *FileRepo) generateFilePath(file *models.SensorFile) (string, error) {
 	timestamp := file.Timestamp.Format(defaultDateFormat)
 	var ext string
-	switch file.Type {
+	switch file.FileType {
 	case "sound":
 		ext = soundFileExtension
 	case "image":
@@ -205,14 +205,14 @@ func (r *FileRepo) generateFilePath(file *models.SensorFile) (string, error) {
 		timestamp,
 		file.HiveID,
 		file.SensorID,
-		file.Type,
+		file.FileType,
 		ext,
 	)
 
 	return filepath.Join(
 		file.HiveID,
 		file.SensorID,
-		file.Type,
+		file.FileType,
 		filename,
 	), nil
 }
@@ -249,5 +249,22 @@ func createDirectoryIfNotExists(path string) error {
 			return errors.NewInternalError("failed to create directory", err)
 		}
 	}
+	return nil
+}
+
+// StreamFile implements the streaming of a file to an io.Writer
+func (r *FileRepo) StreamFile(ctx context.Context, file *models.SensorFile, w io.Writer) error {
+	filePath := filepath.Join(r.config.BasePath, file.FilePath)
+	f, err := os.Open(filePath)
+	if err != nil {
+		return errors.NewInternalError("failed to open file", err)
+	}
+	defer f.Close()
+
+	_, err = io.Copy(w, f)
+	if err != nil {
+		return errors.NewInternalError("failed to stream file", err)
+	}
+
 	return nil
 }

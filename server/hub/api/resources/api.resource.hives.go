@@ -8,14 +8,14 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/itsatony/w4b_v3/server/hub/internal/errors"
+	"github.com/itsatony/w4b_v3/server/hub/internal/hubservice"
 	"github.com/itsatony/w4b_v3/server/hub/internal/models"
-	"github.com/itsatony/w4b_v3/server/hub/internal/service"
 	nuts "github.com/vaudience/go-nuts"
 )
 
 // HiveHandlers encapsulates the hive-related HTTP handlers
 type HiveHandlers struct {
-	service *service.Service
+	hubservice *hubservice.HubService
 }
 
 // @Summary Create a new hive
@@ -38,7 +38,7 @@ func (h *HiveHandlers) CreateHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.service.CreateHive(r.Context(), &hive)
+	err := h.hubservice.CreateHive(r.Context(), &hive)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to create hive", err).WithRequestID(requestID))
 		return
@@ -60,7 +60,7 @@ func (h *HiveHandlers) GetHive(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	requestID := nuts.NID("req", 12)
 
-	hive, err := h.service.GetHive(r.Context(), id)
+	hive, err := h.hubservice.GetHive(r.Context(), id)
 	if err != nil {
 		respondWithError(w, errors.NewNotFoundError("hive not found", err).WithRequestID(requestID))
 		return
@@ -81,7 +81,7 @@ func (h *HiveHandlers) ListHives(w http.ResponseWriter, r *http.Request) {
 	requestID := nuts.NID("req", 12)
 	offset, limit := getPaginationParams(r)
 
-	hives, err := h.service.ListHives(r.Context(), offset, limit)
+	hives, err := h.hubservice.ListHives(r.Context(), offset, limit)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to list hives", err).WithRequestID(requestID))
 		return
@@ -114,7 +114,7 @@ func (h *HiveHandlers) UpdateHive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hive.ID = id
-	err := h.service.UpdateHive(r.Context(), &hive)
+	err := h.hubservice.UpdateHive(r.Context(), &hive)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to update hive", err).WithRequestID(requestID))
 		return
@@ -137,7 +137,7 @@ func (h *HiveHandlers) DeleteHive(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	requestID := nuts.NID("req", 12)
 
-	err := h.service.DeleteHive(r.Context(), id)
+	err := h.hubservice.DeleteHive(r.Context(), id)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to delete hive", err).WithRequestID(requestID))
 		return
@@ -159,13 +159,65 @@ func (h *HiveHandlers) GetHiveStatus(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	requestID := nuts.NID("req", 12)
 
-	status, err := h.service.GetHiveStatus(r.Context(), id)
+	status, err := h.hubservice.GetHiveStatus(r.Context(), id)
 	if err != nil {
 		respondWithError(w, errors.NewNotFoundError("hive not found", err).WithRequestID(requestID))
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, status)
+}
+
+func (h *HiveHandlers) ListHiveComments(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	requestID := nuts.NID("req", 12)
+	// TODO: Implement pagination
+	offset := 0
+	limit := 1000
+
+	comments, err := h.hubservice.HiveComments.List(r.Context(), id, offset, limit)
+	if err != nil {
+		respondWithError(w, errors.NewInternalError("failed to list hive comments", err).WithRequestID(requestID))
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, comments)
+}
+
+func (h *HiveHandlers) CreateHiveComment(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+	requestID := nuts.NID("req", 12)
+
+	var comment models.HiveComment
+	if err := json.NewDecoder(r.Body).Decode(&comment); err != nil {
+		respondWithError(w, errors.NewValidationError("invalid request body", err).WithRequestID(requestID))
+		return
+	}
+
+	comment.HiveID = id
+	err := h.hubservice.HiveComments.Create(r.Context(), &comment)
+	if err != nil {
+		respondWithError(w, errors.NewInternalError("failed to create hive comment", err).WithRequestID(requestID))
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, comment)
+}
+
+func (h *HiveHandlers) DeleteHiveComment(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	requestID := nuts.NID("req", 12)
+	commentID := vars["commentId"]
+
+	err := h.hubservice.HiveComments.Delete(r.Context(), commentID)
+	if err != nil {
+		respondWithError(w, errors.NewInternalError("failed to delete hive comment", err).WithRequestID(requestID))
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Helper functions

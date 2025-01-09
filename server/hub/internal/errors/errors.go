@@ -120,3 +120,19 @@ func NewInternalError(msg string, err error) *APIError {
 		err:     err,
 	}
 }
+
+// IsNotFound checks if an error is a NotFound error
+func IsNotFound(err error) bool {
+	if apiErr, ok := err.(*APIError); ok {
+		return apiErr.Type == ErrorTypeNotFound
+	}
+	return false
+}
+
+// IsValidation checks if an error is a Validation error
+func IsValidation(err error) bool {
+	if apiErr, ok := err.(*APIError); ok {
+		return apiErr.Type == ErrorTypeValidation
+	}
+	return false
+}
