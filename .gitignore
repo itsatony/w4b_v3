@@ -179,3 +179,5 @@ vault/
 server/w4b_containers/secrets/
 
 server/we4b_containers/.env
+
+hive_config_manager/hives/*
