@@ -18,7 +18,9 @@ type SensorFileRepo struct {
 }
 
 func NewSensorFileRepository(db database.DB) *SensorFileRepo {
-	return &SensorFileRepo{db: db}
+	repo := &SensorFileRepo{db: db}
+	repo.initializeSchema()
+	return repo
 }
 
 func (r *SensorFileRepo) Create(ctx context.Context, file *models.SensorFile) error {
