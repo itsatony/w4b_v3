@@ -8,13 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/itsatony/w4b_v3/server/hub/internal/config"
+	"github.com/itsatony/w4b_v3/server/hub/internal/database"
 	"github.com/itsatony/w4b_v3/server/hub/internal/hubservice"
 	"github.com/itsatony/w4b_v3/server/hub/internal/monitoring"
-	"github.com/itsatony/w4b_v3/server/hub/internal/repository"
-	"github.com/jmoiron/sqlx"
+	"github.com/itsatony/w4b_v3/server/hub/internal/repository/postgres"
 	nuts "github.com/vaudience/go-nuts"
 )
 
@@ -152,43 +153,61 @@ func initializeHubService(cfg *config.Config) *hubservice.HubService {
 	appDB := initAppDB(cfg.Database.AppDB)
 
 	// Initialize repositories
-	hives := repository.NewHiveRepository(appDB)
-	sensors := repository.NewSensorRepository(appDB)
-	sensorData := repository.NewSensorDataRepository(tsdb)
+	hives := postgres.NewHiveRepository(appDB)
+	sensors := postgres.NewSensorRepository(appDB)
+	sensorData := postgres.NewSensorDataRepository(tsdb)
 
-	files, err := repository.NewFileRepository(cfg.FileStore)
+	files, err := postgres.NewFileRepository(cfg.FileStore)
 	if err != nil {
 		nuts.L.Fatalf("[Server] Failed to initialize file repository: %v", err)
 	}
 
-	comments := repository.NewHiveCommentRepository(appDB)
+	comments := postgres.NewHiveCommentRepository(appDB)
 
 	// Create and return hub service
 	return hubservice.New(hives, sensors, sensorData, files, comments)
 }
 
-func initTimescaleDB(cfg config.PostgresConfig) *sqlx.DB {
-	connStr := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
-	)
-
-	db, err := sqlx.Connect("postgres", connStr)
+func initTimescaleDB(cfg config.PostgresConfig) database.DB {
+	wrappedDB, err := database.NewTimescaleDB(cfg)
 	if err != nil {
-		nuts.L.Fatalf("[Server] Failed to connect to TimescaleDB: %v", err)
+		nuts.L.Fatalf("[Server] Failed to connect to AppDB: %v", err)
 	}
-	return db
+	db := wrappedDB.GetDB()
+	err = db.Ping()
+	if err != nil {
+		nuts.L.Fatalf("[Server] Failed to ping TimescaleDB: %v", err)
+	}
+	// Verify TimescaleDB extension
+	var hasTimescaleDB bool
+	err = db.Get(&hasTimescaleDB, "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')")
+	if err != nil || !hasTimescaleDB {
+		nuts.L.Fatalf("[Server] TimescaleDB extension not available")
+	}
+	// Set up connection timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		nuts.L.Fatalf("[Server] Failed to ping database: %v", err)
+	}
+	return wrappedDB
 }
 
-func initAppDB(cfg config.PostgresConfig) *sqlx.DB {
-	connStr := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
-	)
-
-	db, err := sqlx.Connect("postgres", connStr)
+func initAppDB(cfg config.PostgresConfig) database.DB {
+	wrappedDB, err := database.NewPostgresDB(cfg)
 	if err != nil {
-		nuts.L.Fatalf("[Server] Failed to connect to Application DB: %v", err)
+		nuts.L.Fatalf("[Server] Failed to connect to AppDB: %v", err)
 	}
-	return db
+	db := wrappedDB.GetDB()
+	err = db.Ping()
+	if err != nil {
+		nuts.L.Fatalf("[Server] Failed to ping TimescaleDB: %v", err)
+	}
+	// Set up connection timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		nuts.L.Fatalf("[Server] Failed to ping database: %v", err)
+	}
+	return wrappedDB
 }
