@@ -1,17 +1,19 @@
 # Hive Configuration Manager
 
-A robust configuration management system for distributed hive monitoring networks. This tool manages the configuration lifecycle of edge devices (Raspberry Pis) in a secure and maintainable way.
+A robust configuration management system for distributed beehive monitoring networks. This tool manages the configuration lifecycle of edge devices (Raspberry Pis) in a secure and maintainable way.
 
 ## Features
 
 - 🔧 Interactive CLI interface for configuration management
-- 🔒 Secure configuration storage with validation
+- 🔒 Comprehensive security credential management (SSH, WireGuard, Database)
+- 🖥️ Integrated Raspberry Pi image generation for edge devices
 - 🔄 Version control and backup management
 - 📝 YAML-based configuration format
 - 🚦 Real-time configuration validation
 - 🔍 Configuration search and filtering
 - 💾 Automatic backup generation
 - 🛡️ Role-based access control integration
+- 📡 VPN and network security management
 
 ## Installation
 
@@ -20,6 +22,7 @@ A robust configuration management system for distributed hive monitoring network
 - Python 3.8 or higher
 - Git (for development)
 - Linux/Unix environment
+- PyYAML, Inquirer, and other dependencies
 
 ### Quick Start
 
@@ -27,23 +30,19 @@ A robust configuration management system for distributed hive monitoring network
 
 ```bash
 git clone https://github.com/itsatony/w4b_v3.git
-cd hive_config_manager
+cd w4b_v3
 ```
 
-2. Run the setup script:
+2. Install dependencies:
 
 ```bash
-# For production
-./setup.sh
-
-# For development
-./setup.sh --dev
+pip install -r requirements.txt
 ```
 
-3. Activate the virtual environment:
+3. Run the configuration manager:
 
 ```bash
-source .venv/bin/activate
+python -m hive_config_manager.hive_config_manager
 ```
 
 ## Usage
@@ -53,8 +52,26 @@ source .venv/bin/activate
 Launch the interactive configuration manager:
 
 ```bash
-python -m hive_config_manager
+python -m hive_config_manager.hive_config_manager
 ```
+
+### Command-Line Options
+
+```bash
+# Generate a Raspberry Pi image for a specific hive
+python -m hive_config_manager.hive_config_manager --generate-image HIVE_ID
+```
+
+### Interactive Menu
+
+The main menu provides the following options:
+
+- **List hives**: Display all configured hives
+- **Add new hive**: Create a new hive configuration with guided setup
+- **Edit hive**: Modify an existing hive configuration
+- **Remove hive**: Delete a hive configuration
+- **Validate hive**: Check configuration for errors
+- **Generate image**: Create a Raspberry Pi image for a hive (when integrated UI is available)
 
 ### Keyboard Shortcuts
 
@@ -62,12 +79,58 @@ python -m hive_config_manager
 - `e`: Edit selected configuration
 - `d`: Delete selected configuration
 - `v`: Validate selected configuration
+- `g`: Generate Raspberry Pi image for selected hive
 - `Tab`: Switch between panels
 - `Ctrl+C` or `Ctrl+Q`: Quit
 
-### Configuration Format
+## Security Configuration
 
-Example hive configuration:
+The configuration manager handles all security credentials required for a secure edge device:
+
+### SSH Access
+
+- Generates SSH key pairs for secure remote access
+- Configures authorized keys and authentication settings
+- Manages SSH port and access restrictions
+
+### WireGuard VPN
+
+- Creates secure WireGuard configurations for edge-to-hub communication
+- Manages private/public key pairs and client IPs
+- Configures endpoint, allowed IPs, and persistent keepalive settings
+
+### Local Access
+
+- Manages local admin accounts with secure password generation
+- Configures sudo access and permissions
+
+### Database Credentials
+
+- Generates and manages database credentials for local data storage
+- Configures database users, passwords, and access controls
+
+## Image Generation
+
+The hive configuration manager integrates with a Raspberry Pi image generator to create pre-configured SD card images:
+
+```bash
+# Generate image via CLI option
+python -m hive_config_manager.hive_config_manager --generate-image my_hive_id
+
+# Or use the interactive interface and press 'g' on a selected hive
+```
+
+The image generator:
+
+1. Validates the hive configuration for completeness
+2. Applies all security credentials and network settings
+3. Creates a custom Raspberry Pi OS image with TimescaleDB and other requirements
+4. Configures SSH, WireGuard VPN, firewall, and other security features
+5. Sets up first-boot initialization for final configuration
+
+## Configuration Format
+
+Example hive configuration including security settings:
 
 ```yaml
 hive_id: hive_x7k9m2p4
@@ -103,132 +166,50 @@ sensors:
     interface:
       type: "gpio"
       pin: 4
+
+security:
+  wireguard:
+    private_key: "<encrypted-private-key>"
+    public_key: "<public-key>"
+    endpoint: "vpn.server.example.com:51820"
+    allowed_ips: "10.10.0.0/24"
+    client_ip: "10.10.0.X/32"
+  
+  ssh:
+    private_key: "<encrypted-private-key>"
+    public_key: "<public-key>"
+    enable_password_auth: false
+    allow_root: false
+    port: 22
+  
+  database:
+    username: "hiveuser"
+    password: "<generated-password>"
+    host: "localhost"
+    port: 5432
+    database: "hivedb"
+  
+  local_access:
+    username: "hiveadmin"
+    password: "<generated-password>"
+    sudo_without_password: false
 ```
 
-## Development
+## Validation
 
-### Project Structure
+The system validates all aspects of the configuration:
 
-```skeleton
-hive_config_manager/
-├── core/
-│   ├── manager.py       # Core management functionality
-│   ├── validator.py     # Configuration validation
-│   ├── schemas.py       # Configuration schemas
-│   └── exceptions.py    # Custom exceptions
-├── cli/
-│   ├── interface.py     # CLI interface
-│   └── prompts.py       # User interaction prompts
-├── utils/
-│   ├── file_operations.py
-│   └── id_generator.py
-├── tests/
-│   ├── test_manager.py
-│   ├── test_validator.py
-│   └── fixtures/
-└── requirements/
-    ├── requirements.txt
-    └── requirements-dev.txt
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage report
-pytest --cov=hive_config_manager
-
-# Run specific test file
-pytest tests/test_manager.py
-```
-
-### Code Style
-
-The project uses:
-
-- Black for code formatting
-- isort for import sorting
-- flake8 for linting
-- mypy for type checking
-
-Run style checks:
-
-```bash
-# Format code
-black .
-
-# Sort imports
-isort .
-
-# Run linter
-flake8
-
-# Type checking
-mypy .
-```
-
-### Pre-commit Hooks
-
-Install pre-commit hooks:
-
-```bash
-pre-commit install
-```
-
-## Configuration Validation
-
-The system validates:
-
-- Required fields presence
-- Data types and formats
-- Value ranges and constraints
-- Network configurations
-- Security settings
-- Sensor configurations
-
-## Error Handling
-
-Common error scenarios:
-
-- Invalid configuration format
-- Missing required fields
-- Invalid data types
-- Network configuration errors
-- Permission issues
-- File system errors
-
-## Security Considerations
-
-- All configurations are stored with secure permissions
-- Sensitive data (passwords, keys) are handled securely
-- File operations use atomic writes
-- Backup files are created before modifications
-- Lock files prevent concurrent modifications
+- Required fields and data types
+- Network settings and connectivity options
+- Security credential formats and requirements
+- Sensor configurations and interfaces
+- Geographic coordinates and timezones
+- Administrator settings and permissions
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. Permission Errors
+1. **Missing Security Credentials**
 
-```bash
-sudo chown -R $(whoami) hives/
-chmod 700 hives/
-```
-
-2. Lock File Issues
-
-```bash
-# Remove stale lock files
-find hives/ -name "*.lock" -delete
-```
-
-3. Virtual Environment Issues
-
-```bash
-# Recreate virtual environment
-rm -rf .venv
-./setup.sh --dev
-```
+If you receive errors about missing security credentials when generating an image:

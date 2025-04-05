@@ -49,7 +49,7 @@ class HiveManagerCLI:
         
         self.status_bar = FormattedTextControl("")
         self.command_bar = FormattedTextControl(
-            "[n]ew [e]dit [d]elete [v]alidate [q]uit"
+            "[n]ew [e]dit [d]elete [v]alidate [g]enerate [q]uit"
         )
         
         self.editor = TextArea(
@@ -100,6 +100,12 @@ class HiveManagerCLI:
             """Validate selected hive"""
             if self.current_hive:
                 self.validate_hive(self.current_hive)
+        
+        @self.kb.add('g')
+        def _(event):
+            """Generate image for selected hive"""
+            if self.current_hive:
+                self.generate_image(self.current_hive)
         
         @self.kb.add('tab')
         def _(event):
@@ -232,6 +238,47 @@ class HiveManagerCLI:
             self.set_status(handle_config_error(e), "class:error")
         except Exception as e:
             self.set_status(f"Unexpected error: {str(e)}", "class:error")
+
+    def generate_image(self, hive_id: str):
+        """Generate Raspberry Pi image for a hive"""
+        try:
+            # First validate the hive configuration
+            errors = self.manager.validate_hive(hive_id)
+            if errors:
+                self.set_status("Cannot generate image - configuration has errors", "class:error")
+                return
+                
+            # Import the image generator dynamically to avoid tight coupling
+            import sys
+            import os
+            generator_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                         "edge")
+            sys.path.append(generator_path)
+            
+            try:
+                from image_generator_cli import ImageGeneratorCLI
+                generator = ImageGeneratorCLI()
+                
+                self.set_status(f"Generating image for {hive_id}. This may take a while...", "class:info")
+                
+                # Run the generator in a separate thread to avoid blocking the UI
+                import threading
+                def run_generator():
+                    success = generator.generate_image(hive_id)
+                    if success:
+                        self.set_status(f"Image generation complete for {hive_id}", "class:success")
+                    else:
+                        self.set_status(f"Image generation failed for {hive_id}", "class:error")
+                
+                thread = threading.Thread(target=run_generator)
+                thread.daemon = True
+                thread.start()
+                
+            except ImportError:
+                self.set_status("Image generator not available", "class:error")
+                
+        except Exception as e:
+            self.set_status(f"Error generating image: {str(e)}", "class:error")
 
     def run(self):
         """Run the CLI interface"""

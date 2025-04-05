@@ -9,6 +9,7 @@ import sys
 import yaml
 import inquirer
 import subprocess
+import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -287,6 +288,26 @@ class HiveManagerCLI:
             return False
 
 def main():
+    parser = argparse.ArgumentParser(description="Hive Configuration Manager")
+    parser.add_argument("--generate-image", metavar="HIVE_ID", 
+                       help="Generate Raspberry Pi image for specified hive")
+    args = parser.parse_args()
+    
+    if args.generate_image:
+        # Import and use the image generator
+        try:
+            from edge.image_generator_cli import ImageGeneratorCLI
+            generator = ImageGeneratorCLI()
+            generator.generate_image(args.generate_image)
+            sys.exit(0)
+        except ImportError:
+            print("Image generator not available. Check that you're running from the repository root.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error generating image: {str(e)}")
+            sys.exit(1)
+    
+    # Continue with normal CLI operation
     cli = HiveManagerCLI()
     
     while True:
