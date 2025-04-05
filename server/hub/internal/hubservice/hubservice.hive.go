@@ -168,7 +168,7 @@ func (s *HubService) GetHiveStatus(ctx context.Context, id string) (*HiveStatus,
 	}
 
 	// Get latest sensor readings
-	readings, err := s.SensorData.GetLatestReadingsByHive(ctx, id)
+	readings, err := s.SensorData.GetLatestReadingsByHiveID(ctx, id)
 	if err != nil {
 		nuts.L.Warnf("[HiveService] Failed to get latest readings for hive %s: %v", id, err)
 		readings = make(map[string]*models.SensorReading)

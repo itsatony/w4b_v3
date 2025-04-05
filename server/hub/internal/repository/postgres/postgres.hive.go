@@ -12,11 +12,12 @@ import (
 )
 
 type HiveRepo struct {
-	db database.DB
+	PostgresBaseRepo
 }
 
 func NewHiveRepository(db database.DB) *HiveRepo {
-	return &HiveRepo{db: db}
+	repo := &PostgresBaseRepo{db: db}
+	return &HiveRepo{PostgresBaseRepo: *repo}
 }
 
 func (r *HiveRepo) Create(ctx context.Context, hive *models.Hive) error {
@@ -89,6 +90,22 @@ func (r *HiveRepo) Update(ctx context.Context, hive *models.Hive) error {
 	return nil
 }
 
+func (r *HiveRepo) UpdateLastSensorDataReceived(ctx context.Context, id string, lastSensorDataReceived time.Time) error {
+	query := `UPDATE hives SET last_sensor_data_received = $1 WHERE id = $2`
+	result, err := r.db.GetDB().ExecContext(ctx, query, lastSensorDataReceived, id)
+	if err != nil {
+		return errors.NewDatabaseError("failed to update last sensor data received", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+	if rows == 0 {
+		return errors.NewNotFoundError("hive not found", nil)
+	}
+	return nil
+}
+
 func (r *HiveRepo) UpdateLastSeen(ctx context.Context, id string, lastSeen time.Time) error {
 	query := `UPDATE hives SET last_seen = $1 WHERE id = $2`
 	result, err := r.db.GetDB().ExecContext(ctx, query, lastSeen, id)
@@ -138,4 +155,14 @@ func (r *HiveRepo) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+func (r *HiveRepo) DeleteWithChildren(ctx context.Context, id string, tx database.Transaction) error {
+	// Delete all child entities related to the hive
+	// For example, delete sensors, sensor data, etc.
+	// This is a placeholder for the actual deletion logic
+	// You would typically have a method in the respective repositories to handle this
+	// TODO: Implement deletion of child entities
+	// Delete the hive itself
+	return r.Delete(ctx, id)
 }

@@ -3,6 +3,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/itsatony/w4b_v3/server/hub/internal/config"
@@ -26,6 +27,18 @@ type PostgresDB struct {
 // TimescaleDB represents a TimescaleDB database connection
 type TimescaleDB struct {
 	db *sqlx.DB
+}
+
+// Transaction represents a database transaction
+type Transaction interface {
+	Commit() error
+	Rollback() error
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
+// Repository represents common repository operations
+type Repository interface {
+	BeginTx(ctx context.Context) (Transaction, error)
 }
 
 // NewPostgresDB creates a new PostgreSQL database connection

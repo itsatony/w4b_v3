@@ -8,9 +8,12 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/itsatony/w4b_v3/server/hub/internal/config"
+	"github.com/itsatony/w4b_v3/server/hub/internal/database"
 	"github.com/itsatony/w4b_v3/server/hub/internal/errors"
 	"github.com/itsatony/w4b_v3/server/hub/internal/models"
 	nuts "github.com/vaudience/go-nuts"
@@ -24,19 +27,13 @@ const (
 	defaultDateFormat  = "20060102_150405"
 )
 
-// FileConfig holds configuration for the file storage
-type FileConfig struct {
-	BasePath    string
-	AllowedMime map[string][]string // map[fileType][]allowedMimeTypes
-}
-
 // FileRepo implements the FileRepository interface
 type FileRepo struct {
-	config FileConfig
+	config config.FileStoreConfig
 }
 
 // NewFileRepository creates a new file storage repository
-func NewFileRepository(config FileConfig) (*FileRepo, error) {
+func NewFileRepository(config config.FileStoreConfig) (*FileRepo, error) {
 	if err := createDirectoryIfNotExists(config.BasePath); err != nil {
 		return nil, err
 	}
@@ -218,16 +215,8 @@ func (r *FileRepo) generateFilePath(file *models.SensorFile) (string, error) {
 }
 
 func (r *FileRepo) isAllowedMimeType(fileType, mimeType string) bool {
-	allowedTypes, exists := r.config.AllowedMime[fileType]
-	if !exists {
-		return false
-	}
-	for _, allowed := range allowedTypes {
-		if allowed == mimeType {
-			return true
-		}
-	}
-	return false
+	exists := slices.Contains(r.config.AllowedMimeTypes, mimeType)
+	return exists
 }
 
 func determineFileType(path string) string {
@@ -264,6 +253,71 @@ func (r *FileRepo) StreamFile(ctx context.Context, file *models.SensorFile, w io
 	_, err = io.Copy(w, f)
 	if err != nil {
 		return errors.NewInternalError("failed to stream file", err)
+	}
+
+	return nil
+}
+
+func (r *FileRepo) GetLatestFiles(ctx context.Context, hiveID, sensorID string, fileTypes []string) ([]*models.SensorFile, error) {
+	files, err := r.ListByHive(ctx, hiveID, "")
+	if err != nil {
+		return nil, err
+	}
+
+	var latestFiles []*models.SensorFile
+	for _, file := range files {
+		if (sensorID == "" || file.SensorID == sensorID) && (len(fileTypes) == 0 || slices.Contains(fileTypes, file.FileType)) {
+			latestFiles = append(latestFiles, file)
+		}
+	}
+
+	return latestFiles, nil
+}
+func (r *FileRepo) DeleteByHiveID(ctx context.Context, hiveID string, tx database.Transaction) error {
+	files, err := r.ListByHive(ctx, hiveID, "")
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		err := r.Delete(ctx, file.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+func (r *FileRepo) DeleteBySensorID(ctx context.Context, sensorID string) error {
+	files, err := r.ListByHive(ctx, "", "")
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if file.SensorID == sensorID {
+			err := r.Delete(ctx, file.ID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+func (r *FileRepo) DeleteBySensorIDs(ctx context.Context, sensorIDs []string, tx database.Transaction) error {
+	files, err := r.ListByHive(ctx, "", "")
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if slices.Contains(sensorIDs, file.SensorID) {
+			err := r.Delete(ctx, file.ID)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

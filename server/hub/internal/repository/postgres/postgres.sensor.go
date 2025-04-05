@@ -9,14 +9,16 @@ import (
 	"github.com/itsatony/w4b_v3/server/hub/internal/database"
 	"github.com/itsatony/w4b_v3/server/hub/internal/errors"
 	"github.com/itsatony/w4b_v3/server/hub/internal/models"
+	nuts "github.com/vaudience/go-nuts"
 )
 
 type SensorRepo struct {
-	db database.DB
+	PostgresBaseRepo
 }
 
 func NewSensorRepository(db database.DB) *SensorRepo {
-	return &SensorRepo{db: db}
+	repo := &PostgresBaseRepo{db: db}
+	return &SensorRepo{PostgresBaseRepo: *repo}
 }
 
 func (r *SensorRepo) Create(ctx context.Context, sensor *models.Sensor) error {
@@ -145,4 +147,158 @@ func (r *SensorRepo) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+func (r *SensorRepo) DeleteWithData(ctx context.Context, id string, tx database.Transaction) error {
+	query := `DELETE FROM sensors WHERE id = $1`
+
+	result, err := tx.ExecContext(ctx, query, id)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete sensor", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	if rows == 0 {
+		return errors.NewNotFoundError("sensor not found", nil)
+	}
+
+	return nil
+}
+
+func (r *SensorRepo) DeleteByHive(ctx context.Context, hiveID string) error {
+	query := `DELETE FROM sensors WHERE hive_id = $1`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, hiveID)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete sensors", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[SensorRepo] Deleted %d sensors for hive %s", rows, hiveID)
+	return nil
+}
+func (r *SensorRepo) DeleteOldSensors(ctx context.Context, before time.Time) error {
+	query := `DELETE FROM sensors WHERE last_value_time < $1`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, before)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete old sensors", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[SensorRepo] Deleted %d sensors older than %v", rows, before)
+	return nil
+}
+func (r *SensorRepo) DeleteOldSensorData(ctx context.Context, before time.Time) error {
+	query := `DELETE FROM sensor_data WHERE timestamp < $1`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, before)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete old sensor data", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[SensorRepo] Deleted %d sensor data older than %v", rows, before)
+	return nil
+}
+func (r *SensorRepo) DeleteOldSensorFiles(ctx context.Context, before time.Time) error {
+	query := `DELETE FROM sensor_files WHERE timestamp < $1`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, before)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete old sensor files", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[SensorRepo] Deleted %d sensor files older than %v", rows, before)
+	return nil
+}
+func (r *SensorRepo) DeleteOldSensorDataByHive(ctx context.Context, hiveID string, before time.Time) error {
+	query := `DELETE FROM sensor_data WHERE hive_id = $1 AND timestamp < $2`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, hiveID, before)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete old sensor data", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[SensorRepo] Deleted %d sensor data older than %v for hive %s", rows, before, hiveID)
+	return nil
+}
+func (r *SensorRepo) DeleteOldSensorFilesByHive(ctx context.Context, hiveID string, before time.Time) error {
+	query := `DELETE FROM sensor_files WHERE hive_id = $1 AND timestamp < $2`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, hiveID, before)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete old sensor files", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[SensorRepo] Deleted %d sensor files older than %v for hive %s", rows, before, hiveID)
+	return nil
+}
+
+func (r *SensorRepo) List(ctx context.Context, filters models.SensorFilters, page, limit int) (int64, []*models.Sensor, error) {
+	query := `
+		SELECT COUNT(*) OVER(), *
+		FROM sensors
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	if filters.HiveID != "" {
+		query += ` AND hive_id = $1`
+		args = append(args, filters.HiveID)
+	}
+	if filters.Type != "" {
+		query += ` AND type = $2`
+		args = append(args, filters.Type)
+	}
+	if filters.Status != "" {
+		query += ` AND status = $3`
+		args = append(args, filters.Status)
+	}
+
+	query += ` ORDER BY created_at DESC LIMIT $4 OFFSET $5`
+	args = append(args, limit, (page-1)*limit)
+
+	sensors := []*models.Sensor{}
+	count := int64(0)
+
+	err := r.db.GetDB().SelectContext(ctx, &sensors, query, args...)
+	if err != nil {
+		return 0, nil, errors.NewDatabaseError("failed to list sensors", err)
+	}
+
+	count = int64(len(sensors))
+
+	return count, sensors, nil
 }

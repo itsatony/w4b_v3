@@ -13,16 +13,18 @@ import (
 )
 
 type SensorDataRepo struct {
-	db database.DB
+	TimeScaleBaseRepo
 }
 
 func NewSensorDataRepository(db database.DB) (*SensorDataRepo, error) {
-	repo := &SensorDataRepo{db: db}
-	err := repo.initializeSchema()
+	repo := &TimeScaleBaseRepo{db: db}
+	tsRepo := &SensorDataRepo{TimeScaleBaseRepo: *repo}
+
+	err := tsRepo.initializeSchema()
 	if err != nil {
 		return nil, err
 	}
-	return repo, nil
+	return tsRepo, nil
 }
 
 func (r *SensorDataRepo) initializeSchema() error {
@@ -248,4 +250,99 @@ func (r *SensorDataRepo) GetLatestReadingsByHive(ctx context.Context, hiveID str
 		result[reading.SensorID] = reading
 	}
 	return result, nil
+}
+
+func (r *SensorDataRepo) GetLatestReadingsBySensorID(ctx context.Context, sensorID string) (*models.SensorReading, error) {
+	reading := &models.SensorReading{}
+	query := `
+				SELECT id, sensor_id, value, timestamp
+				FROM sensor_readings
+				WHERE sensor_id = $1
+				ORDER BY timestamp DESC
+				LIMIT 1`
+
+	err := r.db.GetDB().GetContext(ctx, reading, query, sensorID)
+	if err != nil {
+		return nil, errors.NewDatabaseError("failed to get latest sensor reading", err)
+	}
+	return reading, nil
+}
+
+func (r *SensorDataRepo) GetLatestReadingsByHiveID(ctx context.Context, hiveID string) (map[string]*models.SensorReading, error) {
+	// Use a window function to get the latest reading for each sensor efficiently
+	query := `
+				WITH RankedReadings AS (
+						SELECT sr.id, sr.sensor_id, sr.value, sr.timestamp,
+									 ROW_NUMBER() OVER (PARTITION BY sr.sensor_id ORDER BY sr.timestamp DESC) as rn
+						FROM sensor_readings sr
+						JOIN sensors s ON s.id = sr.sensor_id
+						WHERE s.hive_id = $1
+				)
+				SELECT id, sensor_id, value, timestamp
+				FROM RankedReadings
+				WHERE rn = 1`
+
+	readings := []*models.SensorReading{}
+	err := r.db.GetDB().SelectContext(ctx, &readings, query, hiveID)
+	if err != nil {
+		return nil, errors.NewDatabaseError("failed to get latest hive readings", err)
+	}
+
+	// Convert to map for easier access
+	result := make(map[string]*models.SensorReading)
+	for _, reading := range readings {
+		result[reading.SensorID] = reading
+	}
+	return result, nil
+}
+
+func (r *SensorDataRepo) DeleteBySensorID(ctx context.Context, sensorID string) error {
+	query := `DELETE FROM sensor_readings WHERE sensor_id = $1`
+
+	result, err := r.db.GetDB().ExecContext(ctx, query, sensorID)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete sensor readings", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[TimescaleDB] Deleted %d sensor readings for sensor %s", rows, sensorID)
+	return nil
+}
+
+func (r *SensorDataRepo) DeleteBySensorIDs(ctx context.Context, sensorIDs []string, tx database.Transaction) error {
+	query := `DELETE FROM sensor_readings WHERE sensor_id = ANY($1)`
+
+	result, err := tx.ExecContext(ctx, query, sensorIDs)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete sensor readings", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[TimescaleDB] Deleted %d sensor readings for sensors %v", rows, sensorIDs)
+	return nil
+}
+
+func (r *SensorDataRepo) DeleteByHiveID(ctx context.Context, hiveID string, tx database.Transaction) error {
+	query := `DELETE FROM sensor_readings WHERE sensor_id IN (SELECT id FROM sensors WHERE hive_id = $1)`
+
+	result, err := tx.ExecContext(ctx, query, hiveID)
+	if err != nil {
+		return errors.NewDatabaseError("failed to delete sensor readings", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return errors.NewDatabaseError("failed to get rows affected", err)
+	}
+
+	nuts.L.Infof("[TimescaleDB] Deleted %d sensor readings for hive %s", rows, hiveID)
+	return nil
 }

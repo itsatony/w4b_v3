@@ -62,8 +62,9 @@ type MonitoringConfig struct {
 }
 
 type FileStoreConfig struct {
-	BasePath    string `mapstructure:"base_path"`
-	MaxFileSize int64  `mapstructure:"max_file_size"`
+	BasePath         string   `mapstructure:"base_path"`
+	MaxFileSize      int64    `mapstructure:"max_file_size"`
+	AllowedMimeTypes []string `mapstructure:"allowed_mime_types"`
 }
 
 // Load initializes configuration from environment variables and config file

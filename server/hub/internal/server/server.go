@@ -15,7 +15,9 @@ import (
 	"github.com/itsatony/w4b_v3/server/hub/internal/database"
 	"github.com/itsatony/w4b_v3/server/hub/internal/hubservice"
 	"github.com/itsatony/w4b_v3/server/hub/internal/monitoring"
+	"github.com/itsatony/w4b_v3/server/hub/internal/repository/files"
 	"github.com/itsatony/w4b_v3/server/hub/internal/repository/postgres"
+	"github.com/itsatony/w4b_v3/server/hub/internal/repository/timescale"
 	nuts "github.com/vaudience/go-nuts"
 )
 
@@ -155,9 +157,12 @@ func initializeHubService(cfg *config.Config) *hubservice.HubService {
 	// Initialize repositories
 	hives := postgres.NewHiveRepository(appDB)
 	sensors := postgres.NewSensorRepository(appDB)
-	sensorData := postgres.NewSensorDataRepository(tsdb)
-
-	files, err := postgres.NewFileRepository(cfg.FileStore)
+	sensorData, err := timescale.NewSensorDataRepository(tsdb)
+	if err != nil {
+		nuts.L.Fatalf("[Server] Failed to initialize sensor data repository: %v", err)
+	}
+	// Initialize file repository
+	files, err := files.NewFileRepository(cfg.FileStore)
 	if err != nil {
 		nuts.L.Fatalf("[Server] Failed to initialize file repository: %v", err)
 	}
