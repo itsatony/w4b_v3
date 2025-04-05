@@ -1,0 +1,42 @@
+hive_id: hive_QESuvbLu
+version: 1.0.0
+metadata:
+  name: hans01
+  location:
+    address: Hilgertshausen
+    latitude: 48.4295069
+    longitude: 11.3547899
+    timezone: Europe/Berlin
+  notes: erster test
+network:
+  primary: lan
+administrators:
+- name: hans
+  email: hans+01@itsatony.com
+  username: hans
+  phone: '0'
+  role: hive_admin
+collector:
+  interval: 60
+  batch_size: 100
+  retry_attempts: 3
+  retry_delay: 5
+  buffer_size: 1000
+  logging:
+    level: INFO
+    max_size: 100M
+    retention: 7
+sensors: []
+maintenance:
+  backup:
+    enabled: true
+    interval: 86400
+    retention: 7
+  updates:
+    auto_update: true
+    update_hour: 3
+    allowed_days:
+    - Sunday
+  monitoring:
+    metrics_retention: 30
+    enable_detailed_logging: true

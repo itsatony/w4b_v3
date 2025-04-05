@@ -54,6 +54,9 @@ class HivePrompts:
         # Sensor Configuration
         sensors = self._get_sensor_config()
 
+        # Security Configuration
+        security = self.get_security_config()
+
         # Build complete configuration
         config = {
             'version': '1.0.0',
@@ -82,6 +85,7 @@ class HivePrompts:
                 }
             },
             'sensors': sensors,
+            'security': security,
             'maintenance': {
                 'backup': {
                     'enabled': True,
@@ -263,6 +267,169 @@ class HivePrompts:
                 )
 
         return sensors
+
+    def get_security_config(self, ask_credentials: bool = True) -> Dict[str, Any]:
+        """
+        Gather security configuration for a hive.
+        
+        Args:
+            ask_credentials: Whether to prompt for manual credentials
+            
+        Returns:
+            Dictionary containing security configuration
+        """
+        print("\n=== Security Configuration ===\n")
+        
+        # Ask if user wants to generate credentials or provide them
+        if ask_credentials:
+            manual = inquirer.prompt([
+                inquirer.Confirm('manual',
+                    message="Do you want to manually configure security credentials?",
+                    default=False)
+            ])['manual']
+        else:
+            manual = False
+            
+        if manual:
+            return self._get_manual_security_config()
+        else:
+            # For auto-generated credentials, we just need server information
+            server_info = inquirer.prompt([
+                inquirer.Text('server_endpoint',
+                    message="WireGuard server endpoint (IP:Port)",
+                    default="vpn.example.com:51820")
+            ])
+            
+            return {
+                "server_endpoint": server_info['server_endpoint'],
+                "auto_generate": True
+            }
+
+    def _get_manual_security_config(self) -> Dict[str, Any]:
+        """Gather manually provided security configuration"""
+        # SSH Configuration
+        ssh_config = inquirer.prompt([
+            inquirer.Text('public_key',
+                message="SSH public key",
+                validate=lambda _, x: bool(x.strip())),
+            inquirer.Confirm('enable_password',
+                message="Enable password authentication",
+                default=False),
+            inquirer.Text('port',
+                message="SSH port",
+                default="22")
+        ])
+        
+        # WireGuard Configuration
+        wg_config = inquirer.prompt([
+            inquirer.Text('private_key',
+                message="WireGuard private key"),
+            inquirer.Text('public_key',
+                message="WireGuard public key"),
+            inquirer.Text('endpoint',
+                message="Server endpoint (IP:Port)",
+                default="vpn.example.com:51820"),
+            inquirer.Text('client_ip',
+                message="Client IP address",
+                default="10.10.0.X/32"),
+            inquirer.Text('keepalive',
+                message="Persistent keepalive (seconds)",
+                default="25")
+        ])
+        
+        # Database Configuration
+        db_config = inquirer.prompt([
+            inquirer.Text('username',
+                message="Database username",
+                default="hiveuser"),
+            inquirer.Password('password',
+                message="Database password")
+        ])
+        
+        # Local Access Configuration
+        local_config = inquirer.prompt([
+            inquirer.Text('username',
+                message="Local admin username",
+                default="hiveadmin"),
+            inquirer.Password('password',
+                message="Local admin password")
+        ])
+        
+        return {
+            "ssh": ssh_config,
+            "wireguard": wg_config,
+            "database": db_config,
+            "local_access": local_config,
+            "auto_generate": False
+        }
+
+    def display_security_credentials(self, credentials: Dict[str, Any]) -> None:
+        """
+        Display generated security credentials.
+        
+        Args:
+            credentials: Dictionary containing security credentials
+        """
+        print("\n=== GENERATED SECURITY CREDENTIALS ===\n")
+        print("IMPORTANT: Store these credentials safely. They will not be shown again.\n")
+        
+        print("=== SSH Keys ===")
+        print(f"Public Key: {credentials['ssh']['public_key']}")
+        print(f"Private Key: [Redacted - saved to config file]")
+        
+        print("\n=== WireGuard Configuration ===")
+        print(f"Client IP: {credentials['wireguard']['client_ip']}")
+        print(f"Public Key: {credentials['wireguard']['public_key']}")
+        print("Private Key: [Redacted - saved to config file]")
+        
+        print("\n=== Database Credentials ===")
+        print(f"Username: {credentials['database']['username']}")
+        print(f"Password: {credentials['database']['password']}")
+        
+        print("\n=== Local Access Credentials ===")
+        print(f"Username: {credentials['local_access']['username']}")
+        print(f"Password: {credentials['local_access']['password']}")
+        
+        print("\nThese credentials have been saved to the hive configuration file.")
+        
+        # Prompt to save to a separate file
+        save = inquirer.prompt([
+            inquirer.Confirm('save',
+                message="Do you want to save these credentials to a separate file?",
+                default=True)
+        ])
+        
+        if save['save']:
+            file_path = inquirer.prompt([
+                inquirer.Text('path',
+                    message="Enter file path",
+                    default="./credentials.txt")
+            ])['path']
+            
+            try:
+                with open(file_path, 'w') as f:
+                    f.write("=== HIVE SECURITY CREDENTIALS ===\n\n")
+                    f.write("=== SSH Keys ===\n")
+                    f.write(f"Public Key: {credentials['ssh']['public_key']}\n")
+                    f.write(f"Private Key:\n{credentials['ssh']['private_key']}\n\n")
+                    
+                    f.write("=== WireGuard Configuration ===\n")
+                    f.write(f"Client IP: {credentials['wireguard']['client_ip']}\n")
+                    f.write(f"Public Key: {credentials['wireguard']['public_key']}\n")
+                    f.write(f"Private Key: {credentials['wireguard']['private_key']}\n\n")
+                    
+                    f.write("=== Database Credentials ===\n")
+                    f.write(f"Username: {credentials['database']['username']}\n")
+                    f.write(f"Password: {credentials['database']['password']}\n\n")
+                    
+                    f.write("=== Local Access Credentials ===\n")
+                    f.write(f"Username: {credentials['local_access']['username']}\n")
+                    f.write(f"Password: {credentials['local_access']['password']}\n")
+                
+                print(f"\nCredentials saved to {file_path}")
+                print("WARNING: This file contains sensitive information. Keep it secure!")
+            except Exception as e:
+                print(f"Error saving credentials: {str(e)}")
 
     def format_config(self, config: Dict[str, Any]) -> str:
         """Format configuration for display"""

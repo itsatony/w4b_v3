@@ -114,3 +114,38 @@ maintenance:
   monitoring:
     metrics_retention: 30  # days
     enable_detailed_logging: true
+
+security:
+  # WireGuard VPN Configuration
+  wireguard:
+    # Generated during setup or manually configured
+    private_key: "<encrypted-private-key>"
+    public_key: "<public-key>"
+    endpoint: "vpn.server.example.com:51820"
+    allowed_ips: "10.10.0.0/24"
+    persistent_keepalive: 25
+    client_ip: "10.10.0.X"  # Will be assigned during setup
+
+  # Database Credentials
+  database:
+    username: "hiveuser"
+    password: "<generated-password>"  # Strong password generated during setup
+    host: "localhost"
+    port: 5432
+    database: "hivedb"
+    ssl_mode: "require"
+
+  # SSH Access Configuration
+  ssh:
+    # Generated key pair for remote access
+    private_key: "<encrypted-private-key>"  # Stored encrypted
+    public_key: "<public-key>"  # Added to authorized_keys on device
+    enable_password_auth: false
+    allow_root: false
+    port: 22
+
+  # Local Access Configuration (for initial setup)
+  local_access:
+    username: "hiveadmin"
+    password: "<generated-password>"  # Initial sudo password
+    sudo_without_password: false

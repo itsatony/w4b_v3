@@ -1,142 +1,128 @@
-# hive_config_manager/utils/file_operations.py
+#!/usr/bin/env python3
+"""
+File Operations Utilities for Hive Configuration Manager
+"""
 
 import os
 import yaml
+import tempfile
+import shutil
 from pathlib import Path
-from typing import Dict, Any
-from ..core.exceptions import FileSystemError
+from typing import Dict, Any, Optional, Union
+import logging
+import fcntl
 
-def safe_write_yaml(path: Path, data: Dict[str, Any]) -> None:
+logger = logging.getLogger(__name__)
+
+def safe_read_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
     """
-    Safely write YAML data to file with atomic operation.
+    Safely read a YAML file with error handling.
     
     Args:
-        path: Path to write to
-        data: Data to write
+        file_path: Path to the YAML file
+        
+    Returns:
+        Dictionary containing the parsed YAML
         
     Raises:
-        FileSystemError: If write operation fails
+        FileNotFoundError: If the file doesn't exist
+        yaml.YAMLError: If the file contains invalid YAML
+        PermissionError: If the file can't be read due to permissions
     """
-    temp_path = path.with_suffix('.tmp')
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    
     try:
-        with open(temp_path, 'w') as f:
-            yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-        # Atomic rename
+        with open(path, 'r') as f:
+            return yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        logger.error(f"YAML parsing error in {path}: {str(e)}")
+        raise
+    except PermissionError as e:
+        logger.error(f"Permission error reading {path}: {str(e)}")
+        raise
+
+def safe_write_yaml(file_path: Union[str, Path], data: Dict[str, Any]) -> None:
+    """
+    Safely write a dictionary to a YAML file using atomic operations.
+    
+    Args:
+        file_path: Path to the YAML file
+        data: Dictionary to write
+        
+    Raises:
+        PermissionError: If the file can't be written due to permissions
+        OSError: If the write operation fails
+    """
+    path = Path(file_path)
+    
+    # Create directory if it doesn't exist
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Write to a temporary file first for atomicity
+    temp_fd, temp_path = tempfile.mkstemp(
+        prefix=f"{path.stem}_", 
+        suffix='.yaml',
+        dir=path.parent
+    )
+    try:
+        with os.fdopen(temp_fd, 'w') as temp_file:
+            yaml.safe_dump(data, temp_file, sort_keys=False, default_flow_style=False)
+        
+        # On Unix systems, rename is atomic
         os.replace(temp_path, path)
     except Exception as e:
-        if temp_path.exists():
-            temp_path.unlink()
-        raise FileSystemError(f"Failed to write configuration: {str(e)}")
+        # Clean up the temporary file in case of error
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        logger.error(f"Error writing to {path}: {str(e)}")
+        raise
 
-def safe_read_yaml(path: Path) -> Dict[str, Any]:
+def acquire_lock(file_path: Union[str, Path], timeout: Optional[float] = None) -> Optional[int]:
     """
-    Safely read YAML data from file.
+    Acquire a lock on a file.
     
     Args:
-        path: Path to read from
+        file_path: Path to the file to lock
+        timeout: Optional timeout in seconds, or None to block indefinitely
         
     Returns:
-        Parsed YAML data
+        File descriptor if lock acquired, None otherwise
         
     Raises:
-        FileSystemError: If read operation fails
+        TimeoutError: If timeout is reached
+        OSError: If lock can't be acquired due to OS errors
     """
-    try:
-        with open(path) as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        raise FileSystemError(f"Failed to read configuration: {str(e)}")
-
-def create_backup(source: Path, backup_dir: Path) -> Path:
-    """
-    Create a backup of a configuration file.
-    
-    Args:
-        source: Source file to backup
-        backup_dir: Directory for backups
-        
-    Returns:
-        Path to backup file
-        
-    Raises:
-        FileSystemError: If backup operation fails
-    """
-    from datetime import datetime
-    
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = backup_dir / f"{source.stem}_{timestamp}{source.suffix}"
-    
-    try:
-        import shutil
-        shutil.copy2(source, backup_path)
-        return backup_path
-    except Exception as e:
-        raise FileSystemError(f"Failed to create backup: {str(e)}")
-
-def check_file_permissions(path: Path) -> None:
-    """
-    Check if file permissions are secure.
-    
-    Args:
-        path: Path to check
-        
-    Raises:
-        FileSystemError: If permissions are insecure
-    """
-    try:
-        stat = path.stat()
-        # Check if file is owned by current user
-        if stat.st_uid != os.getuid():
-            raise FileSystemError(f"File {path} not owned by current user")
-        # Check if file permissions are too open
-        if stat.st_mode & 0o077:
-            raise FileSystemError(f"File {path} has insecure permissions")
-    except OSError as e:
-        raise FileSystemError(f"Failed to check file permissions: {str(e)}")
-
-def acquire_lock(path: Path, timeout: int = 10) -> bool:
-    """
-    Try to acquire a lock file with timeout.
-    
-    Args:
-        path: Path to lock file
-        timeout: Timeout in seconds
-        
-    Returns:
-        True if lock acquired, False if timeout
-        
-    Raises:
-        FileSystemError: If lock operation fails
-    """
-    import time
+    path = Path(file_path)
     lock_path = path.with_suffix('.lock')
     
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            if not lock_path.exists():
-                lock_path.touch()
-                return True
-        except OSError as e:
-            raise FileSystemError(f"Failed to create lock file: {str(e)}")
-        time.sleep(0.1)
-    
-    return False
+    try:
+        # Create lock file if it doesn't exist
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT)
+        
+        # Try to acquire an exclusive lock
+        fcntl.flock(fd, fcntl.LOCK_EX | (fcntl.LOCK_NB if timeout is not None else 0))
+        return fd
+    except BlockingIOError:
+        # Lock is held by another process
+        os.close(fd)
+        raise TimeoutError(f"Timeout waiting for lock on {path}")
+    except OSError as e:
+        if fd:
+            os.close(fd)
+        logger.error(f"Failed to acquire lock on {path}: {str(e)}")
+        raise
 
-def release_lock(path: Path) -> None:
+def release_lock(fd: int) -> None:
     """
-    Release a lock file.
+    Release a previously acquired lock.
     
     Args:
-        path: Path to lock file
-        
-    Raises:
-        FileSystemError: If unlock operation fails
+        fd: File descriptor returned by acquire_lock
     """
-    lock_path = path.with_suffix('.lock')
     try:
-        if lock_path.exists():
-            lock_path.unlink()
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
     except OSError as e:
-        raise FileSystemError(f"Failed to release lock: {str(e)}")
+        logger.error(f"Error releasing lock: {str(e)}")

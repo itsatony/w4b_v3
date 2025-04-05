@@ -53,6 +53,10 @@ class ConfigValidator:
             self._validate_collector(config['collector'])
             self._validate_sensors(config['sensors'])
             self._validate_maintenance(config['maintenance'])
+            
+            # Validate security section if present
+            if 'security' in config:
+                self._validate_security(config['security'])
         
         return self.errors
 
@@ -237,6 +241,79 @@ class ConfigValidator:
         for section in ['backup', 'updates', 'monitoring']:
             if section not in maintenance:
                 self.errors.append(f"Missing maintenance.{section} configuration")
+
+    def _validate_security(self, security: Dict[str, Any]) -> None:
+        """
+        Validate security configuration.
+        
+        Args:
+            security: Security configuration dictionary
+        """
+        # Check for required security sections
+        sections = ['wireguard', 'database', 'ssh', 'local_access']
+        for section in sections:
+            if section not in security:
+                self.errors.append(f"Missing security.{section} configuration")
+        
+        # Validate WireGuard configuration if present
+        if 'wireguard' in security:
+            wireguard = security['wireguard']
+            required_wg = ['private_key', 'public_key']
+            for field in required_wg:
+                if field not in wireguard:
+                    self.errors.append(f"Missing security.wireguard.{field}")
+            
+            if 'client_ip' in wireguard:
+                # Check if client_ip contains a valid IP/CIDR
+                if not self._is_valid_cidr(wireguard['client_ip']):
+                    self.errors.append(f"Invalid client IP: {wireguard['client_ip']}")
+        
+        # Validate database configuration if present
+        if 'database' in security:
+            db = security['database']
+            required_db = ['username', 'password']
+            for field in required_db:
+                if field not in db:
+                    self.errors.append(f"Missing security.database.{field}")
+        
+        # Validate SSH configuration if present
+        if 'ssh' in security:
+            ssh = security['ssh']
+            if 'public_key' not in ssh:
+                self.errors.append("Missing SSH public key")
+            
+            if 'port' in ssh:
+                try:
+                    port = int(ssh['port'])
+                    if not 1 <= port <= 65535:
+                        self.errors.append(f"Invalid SSH port: {port}")
+                except (ValueError, TypeError):
+                    self.errors.append(f"Invalid SSH port: {ssh['port']}")
+        
+        # Validate local access configuration if present
+        if 'local_access' in security:
+            local = security['local_access']
+            required_local = ['username', 'password']
+            for field in required_local:
+                if field not in local:
+                    self.errors.append(f"Missing security.local_access.{field}")
+
+    def _is_valid_cidr(self, cidr: str) -> bool:
+        """
+        Check if a string is a valid CIDR notation.
+        
+        Args:
+            cidr: String to check (e.g., '10.10.0.1/32')
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            import ipaddress
+            ipaddress.ip_network(cidr, strict=False)
+            return True
+        except ValueError:
+            return False
 
     def _check_required_fields(self, data: Dict[str, Any], 
                              fields: List[str], prefix: str = "") -> None:

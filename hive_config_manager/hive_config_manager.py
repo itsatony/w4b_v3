@@ -14,18 +14,17 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import nanoid
 
-class HiveManager:
+from core.manager import HiveManager
+from core.exceptions import HiveConfigError, ConfigNotFoundError, ValidationError
+from utils.security import SecurityUtils
+
+class HiveManagerCLI:
     def __init__(self, base_path: str = None):
-        self.base_path = Path(base_path or os.path.join(os.getcwd(), 'hives'))
-        self.base_path.mkdir(exist_ok=True)
+        self.manager = HiveManager(base_path or os.path.join(os.getcwd(), 'hives'))
         
     def list_hives(self) -> List[str]:
         """List all existing hive configurations"""
-        return [f.stem for f in self.base_path.glob('*.yaml')]
-    
-    def generate_hive_id(self) -> str:
-        """Generate a unique hive ID"""
-        return f"hive_{nanoid.generate(size=8)}"
+        return self.manager.list_hives()
     
     def create_hive(self) -> None:
         """Interactive hive creation process"""
@@ -93,9 +92,19 @@ class HiveManager:
                             choices=['hive_admin', 'hive_viewer'])
             ])
             admins.append(admin)
+            
+        # Security configuration
+        security_config = inquirer.prompt([
+            inquirer.Confirm('generate_keys',
+                            message="Generate security keys automatically?",
+                            default=True),
+            inquirer.Text('server_endpoint',
+                        message="WireGuard server endpoint (IP:Port)",
+                        default="vpn.example.com:51820")
+        ])
         
         # Generate configuration
-        hive_id = self.generate_hive_id()
+        hive_id = self.manager.generate_hive_id()
         config = {
             'hive_id': hive_id,
             'version': '1.0.0',
@@ -142,17 +151,101 @@ class HiveManager:
             }
         }
         
-        # Save configuration
-        config_path = self.base_path / f"{hive_id}.yaml"
-        with open(config_path, 'w') as f:
-            yaml.safe_dump(config, f, sort_keys=False)
+        try:
+            # Create the base hive configuration
+            self.manager.create_hive(config)
+            
+            # Generate security credentials if requested
+            if security_config['generate_keys']:
+                credentials = self.manager.generate_security_credentials(
+                    hive_id, security_config['server_endpoint']
+                )
+                
+                # Apply credentials to the configuration
+                self.manager.apply_security_credentials(hive_id, credentials)
+                
+                # Display the credentials
+                self._display_credentials(credentials)
+            
+            print(f"\nCreated hive configuration: {hive_id}")
+            
+            # Ask if user wants to edit the configuration
+            edit = inquirer.prompt([
+                inquirer.Confirm('edit', message="Edit hive configuration now?", default=True)
+            ])
+            
+            if edit['edit']:
+                self.edit_hive(hive_id)
+                
+        except HiveConfigError as e:
+            print(f"Error creating hive: {str(e)}")
+            return
+    
+    def _display_credentials(self, credentials: Dict) -> None:
+        """Display the generated security credentials"""
+        print("\n=== SECURITY CREDENTIALS ===")
+        print("KEEP THIS INFORMATION SECURE!")
         
-        print(f"\nCreated hive configuration: {config_path}")
-        self.edit_hive(hive_id)
+        print("\n--- SSH Keys ---")
+        print("Public Key:")
+        print(credentials['ssh']['public_key'])
+        print("Private Key: [REDACTED - stored in config]")
+        
+        print("\n--- WireGuard ---")
+        print(f"Client IP: {credentials['wireguard']['client_ip']}")
+        print(f"Public Key: {credentials['wireguard']['public_key']}")
+        print("Private Key: [REDACTED - stored in config]")
+        
+        print("\n--- Database ---")
+        print(f"Username: {credentials['database']['username']}")
+        print(f"Password: {credentials['database']['password']}")
+        
+        print("\n--- Local Access ---")
+        print(f"Username: {credentials['local_access']['username']}")
+        print(f"Password: {credentials['local_access']['password']}")
+        
+        # Ask to save to file
+        save = inquirer.prompt([
+            inquirer.Confirm('save',
+                           message="Save credentials to file?",
+                           default=False)
+        ])
+        
+        if save['save']:
+            file_path = inquirer.prompt([
+                inquirer.Text('path',
+                            message="File path",
+                            default=f"{credentials['wireguard']['client_ip'].split('/')[0]}_credentials.txt")
+            ])['path']
+            
+            try:
+                with open(file_path, 'w') as f:
+                    f.write("=== HIVE SECURITY CREDENTIALS ===\n\n")
+                    f.write("--- SSH Keys ---\n")
+                    f.write(f"Public Key:\n{credentials['ssh']['public_key']}\n\n")
+                    f.write(f"Private Key:\n{credentials['ssh']['private_key']}\n\n")
+                    
+                    f.write("--- WireGuard ---\n")
+                    f.write(f"Client IP: {credentials['wireguard']['client_ip']}\n")
+                    f.write(f"Public Key: {credentials['wireguard']['public_key']}\n")
+                    f.write(f"Private Key: {credentials['wireguard']['private_key']}\n\n")
+                    
+                    f.write("--- Database ---\n")
+                    f.write(f"Username: {credentials['database']['username']}\n")
+                    f.write(f"Password: {credentials['database']['password']}\n\n")
+                    
+                    f.write("--- Local Access ---\n")
+                    f.write(f"Username: {credentials['local_access']['username']}\n")
+                    f.write(f"Password: {credentials['local_access']['password']}\n")
+                
+                print(f"Credentials saved to {file_path}")
+                print("WARNING: This file contains sensitive information!")
+            except Exception as e:
+                print(f"Error saving credentials: {str(e)}")
     
     def edit_hive(self, hive_id: str) -> None:
         """Open hive configuration in system editor"""
-        config_path = self.base_path / f"{hive_id}.yaml"
+        config_path = self.manager.get_hive_path(hive_id)
         if not config_path.exists():
             print(f"Error: Hive configuration {hive_id} not found")
             return
@@ -162,7 +255,7 @@ class HiveManager:
     
     def remove_hive(self, hive_id: str) -> None:
         """Remove a hive configuration"""
-        config_path = self.base_path / f"{hive_id}.yaml"
+        config_path = self.manager.get_hive_path(hive_id)
         if not config_path.exists():
             print(f"Error: Hive configuration {hive_id} not found")
             return
@@ -179,7 +272,7 @@ class HiveManager:
     
     def validate_hive(self, hive_id: str) -> bool:
         """Validate hive configuration"""
-        config_path = self.base_path / f"{hive_id}.yaml"
+        config_path = self.manager.get_hive_path(hive_id)
         if not config_path.exists():
             print(f"Error: Hive configuration {hive_id} not found")
             return False
@@ -194,11 +287,11 @@ class HiveManager:
             return False
 
 def main():
-    manager = HiveManager()
+    cli = HiveManagerCLI()
     
     while True:
         # List existing hives
-        hives = manager.list_hives()
+        hives = cli.list_hives()
         
         # Main menu
         questions = [
@@ -223,7 +316,7 @@ def main():
             print()
         
         elif answer['action'] == 'add':
-            manager.create_hive()
+            cli.create_hive()
         
         elif answer['action'] == 'edit':
             if not hives:
@@ -235,7 +328,7 @@ def main():
                             message="Select hive to edit",
                             choices=hives)
             ])
-            manager.edit_hive(hive['id'])
+            cli.edit_hive(hive['id'])
         
         elif answer['action'] == 'remove':
             if not hives:
@@ -247,7 +340,7 @@ def main():
                             message="Select hive to remove",
                             choices=hives)
             ])
-            manager.remove_hive(hive['id'])
+            cli.remove_hive(hive['id'])
         
         elif answer['action'] == 'validate':
             if not hives:
@@ -259,7 +352,7 @@ def main():
                             message="Select hive to validate",
                             choices=hives)
             ])
-            if manager.validate_hive(hive['id']):
+            if cli.validate_hive(hive['id']):
                 print("Configuration is valid")
         
         elif answer['action'] == 'exit':
