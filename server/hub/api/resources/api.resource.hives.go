@@ -137,7 +137,19 @@ func (h *HiveHandlers) DeleteHive(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	requestID := nuts.NID("req", 12)
 
-	err := h.hubservice.DeleteHive(r.Context(), id)
+	// Verify hive exists before deletion
+	_, err := h.hubservice.GetHive(r.Context(), id)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			respondWithError(w, errors.NewNotFoundError("hive not found", err).WithRequestID(requestID))
+			return
+		}
+		respondWithError(w, errors.NewInternalError("failed to get hive", err).WithRequestID(requestID))
+		return
+	}
+
+	// Use cleanup service for deletion
+	err = h.hubservice.Cleanup.DeleteHive(r.Context(), id)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to delete hive", err).WithRequestID(requestID))
 		return

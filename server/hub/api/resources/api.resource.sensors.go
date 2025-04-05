@@ -299,7 +299,7 @@ func (h *SensorHandlers) DeleteSensor(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	requestID := nuts.NID("req", 12)
 
-	// Check if sensor exists before attempting deletion
+	// Verify sensor exists before deletion
 	_, err := h.hubservice.GetSensor(r.Context(), id)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -310,14 +310,13 @@ func (h *SensorHandlers) DeleteSensor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Perform deletion
-	err = h.hubservice.DeleteSensor(r.Context(), id)
+	// Use cleanup service for deletion
+	err = h.hubservice.Cleanup.DeleteSensor(r.Context(), id)
 	if err != nil {
 		respondWithError(w, errors.NewInternalError("failed to delete sensor", err).WithRequestID(requestID))
 		return
 	}
 
-	// Return 204 No Content for successful deletion
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -55,8 +55,10 @@ type RedisConfig struct {
 }
 
 type MonitoringConfig struct {
-	PrometheusPort int    `mapstructure:"prometheus_port"`
-	LogLevel       string `mapstructure:"log_level"`
+	PrometheusPort     int    `mapstructure:"prometheus_port"`
+	LogLevel           string `mapstructure:"log_level"`
+	PrometheusEndpoint string `mapstructure:"prometheus_endpoint"`
+	LokiEndpoint       string `mapstructure:"loki_endpoint"`
 }
 
 type FileStoreConfig struct {
@@ -113,6 +115,8 @@ func setDefaults() {
 	// Monitoring defaults
 	viper.SetDefault("monitoring.prometheus_port", 9090)
 	viper.SetDefault("monitoring.log_level", "info")
+	viper.SetDefault("monitoring.prometheus_endpoint", "http://localhost:9090")
+	viper.SetDefault("monitoring.loki_endpoint", "http://localhost:3100")
 
 	// FileStore defaults
 	viper.SetDefault("filestore.max_file_size", 10*1024*1024) // 10MB

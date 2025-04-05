@@ -14,22 +14,51 @@ HiveCtl is a management tool for containerized infrastructure that uses podman a
 
 - Python 3.8 or higher
 - Podman and podman-compose
+- Poetry (for dependency management)
 - Linux operating system
 
 ## Installation
 
-### From Source
+### Using the setup script
 
 ```bash
 git clone https://github.com/itsatony/w4b_v3.git
-cd w4b_v3/server/w4bcontainers/hivectl
-pip install -e .
+cd w4b_v3/server/w4b_containers/hivectl
+./setup.sh
 ```
 
-### Using pip
+The setup script will:
+1. Install Poetry if it's not already installed
+2. Create a global `hivectl` command
+3. Set up all required dependencies
 
+### Manual installation
+
+1. Install Poetry if you don't have it:
 ```bash
-pip install hivectl
+curl -sSL https://install.python-poetry.org | python3 -
+```
+
+2. Clone the repository and install:
+```bash
+git clone https://github.com/itsatony/w4b_v3.git
+cd w4b_v3/server/w4b_containers/hivectl
+poetry install
+```
+
+3. Create a symlink for global access:
+```bash
+sudo ln -s "$(pwd)/hivectl.wrapper.sh" /usr/local/bin/hivectl
+```
+
+### Development setup
+
+For development:
+```bash
+git clone https://github.com/itsatony/w4b_v3.git
+cd w4b_v3/server/w4b_containers/hivectl
+poetry install
+poetry shell  # Activates the virtual environment
 ```
 
 ## Core Concepts
@@ -127,6 +156,29 @@ services = manager.resolve_services(['auth'])
 - Progressive backoff for health check retries
 
 ## Working with HiveCtl
+
+### Development Workflow with Poetry
+
+To run the development version:
+```bash
+poetry shell  # Activate the virtual environment
+hivectl --help
+```
+
+To add a new dependency:
+```bash
+poetry add package-name
+```
+
+To add a development dependency:
+```bash
+poetry add --group dev package-name
+```
+
+To update dependencies:
+```bash
+poetry update
+```
 
 ### Extending Commands
 To add a new command:

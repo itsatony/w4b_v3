@@ -1,6 +1,7 @@
 package hubservice
 
 import (
+	"github.com/itsatony/w4b_v3/server/hub/internal/cleanup"
 	"github.com/itsatony/w4b_v3/server/hub/internal/errors"
 	"github.com/itsatony/w4b_v3/server/hub/internal/repository"
 )
@@ -12,6 +13,7 @@ type HubService struct {
 	SensorData   repository.SensorDataRepository
 	Files        repository.FileRepository
 	HiveComments repository.HiveCommentRepository
+	Cleanup      *cleanup.CleanupService
 }
 
 // New creates a new HubService instance
@@ -22,13 +24,15 @@ func New(
 	files repository.FileRepository,
 	comments repository.HiveCommentRepository,
 ) *HubService {
-	return &HubService{
+	svc := &HubService{
 		Hives:        hives,
 		Sensors:      sensors,
 		SensorData:   sensorData,
 		Files:        files,
 		HiveComments: comments,
 	}
+	svc.Cleanup = cleanup.New(hives, sensors, sensorData, files, comments)
+	return svc
 }
 
 // Validate checks if all required repositories are initialized

@@ -2,7 +2,7 @@
 
 a sensordata collection system
 
-(Claude3.5sonnet discussion system setup)[https://claude.ai/chat/050c228a-4d85-4138-9469-7529427e008e]
+[Claude3.5sonnet discussion system setup](https://claude.ai/chat/050c228a-4d85-4138-9469-7529427e008e)
 
 ## System Overview
 

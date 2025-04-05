@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "hivectl"
+version = "0.1.0"
+description = "Management tool for containerized infrastructure"
+authors = ["We4Bee Team <dev@we4bee.org>"]
+readme = "README.md"
+repository = "https://github.com/itsatony/w4b_v3"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: System :: Systems Administration",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Installation/Setup",
+]
+keywords = ["container management", "infrastructure", "monitoring", "podman"]
+packages = [{include = "hivectl"}]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<4.0"
+click = "^8.1.7"
+rich = "^13.7.0"
+pyyaml = "^6.0.1"
+python-dotenv = "^1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pylint = "^3.0.0"
+black = "^23.10.0"
+isort = "^5.12.0"
+
+[tool.poetry.scripts]
+hivectl = "hivectl:cli"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88
