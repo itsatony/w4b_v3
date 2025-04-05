@@ -28,9 +28,19 @@ cd w4b_v3/server/w4b_containers/hivectl
 ```
 
 The setup script will:
-1. Install Poetry if it's not already installed
-2. Create a global `hivectl` command
-3. Set up all required dependencies
+1. Install pipx if needed
+2. Install Poetry if needed
+3. Install hivectl and its dependencies
+4. Create a global `hivectl` command
+
+### Troubleshooting
+
+If you encounter Python-related errors during installation:
+```bash
+sudo apt install python-is-python3
+```
+
+Then run setup.sh again.
 
 ### Manual installation
 

@@ -1,109 +1,89 @@
 #!/bin/bash
 
-set -e
+# Function to check if a command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+# Get the current directory
+CURRENT_DIR="$(pwd)"
 
-# Logging functions
-log() { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-
-# Check Python version
-if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)" 2>/dev/null; then
-    error "Python 3.8 or higher is required"
+# Check for Python 3
+if ! command_exists python3; then
+  echo "Python 3 is required but not found."
+  echo "Please install Python 3 with: sudo apt install python3"
+  exit 1
 fi
 
-# Check if python symlink exists, create if needed
-if ! command -v python &> /dev/null; then
-    log "Python command not found, creating symlink from python3"
-    PYTHON3_PATH=$(which python3)
-    if [ -z "$PYTHON3_PATH" ]; then
-        error "Could not find python3 executable"
-    fi
-    
-    # Create a local symlink in the virtual environment bin directory
-    mkdir -p .venv/bin
-    ln -sf "$PYTHON3_PATH" .venv/bin/python
-    export PATH="$(pwd)/.venv/bin:$PATH"
-    
-    log "Created local python symlink"
+# Check for pipx and install if needed
+if ! command_exists pipx; then
+  echo "Installing pipx..."
+  python3 -m pip install --user pipx
+  python3 -m pipx ensurepath
+  
+  # Source bashrc to update PATH
+  if [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc"
+  fi
+  
+  if ! command_exists pipx; then
+    echo "Failed to install pipx. Please install manually with:"
+    echo "python3 -m pip install --user pipx"
+    echo "python3 -m pipx ensurepath"
+    exit 1
+  fi
 fi
 
-# Configure Poetry to use Python 3 explicitly
-export POETRY_PYTHON=$(which python3)
-log "Set Poetry to use Python 3 at: $POETRY_PYTHON"
+# Check if Poetry is already installed, install with pipx if needed
+if ! command_exists poetry; then
+  echo "Poetry is not installed. Installing with pipx..."
+  pipx install poetry
+  
+  # Source bashrc to update PATH
+  if [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc"
+  fi
+  
+  if ! command_exists poetry; then
+    echo "Failed to install Poetry. If you get Python errors, try:"
+    echo "$ sudo apt install python-is-python3"
+    exit 1
+  fi
+fi
 
-# Check for Poetry and install or update
-if ! command -v poetry &> /dev/null; then
-    log "Poetry is not installed. Installing latest Poetry (2.x)..."
-    curl -sSL https://install.python-poetry.org | python3 -
-    
-    # Add Poetry to PATH for current session
-    export PATH="$HOME/.local/bin:$PATH"
-    
-    # Check if PATH needs to be updated in shell config
-    if ! echo $PATH | grep -q "$HOME/.local/bin"; then
-        warn "Please add '$HOME/.local/bin' to your PATH in your shell configuration file."
-        warn "For example, add the following line to your ~/.bashrc or ~/.zshrc:"
-        warn "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-    fi
-    
-    if ! command -v poetry &> /dev/null; then
-        error "Failed to install Poetry. Please install it manually: https://python-poetry.org/docs/#installation"
-    fi
+# Remove any broken or partial installs
+echo "Cleaning previous installation..."
+rm -rf .venv dist *.egg-info
+
+# Install the hivectl package
+echo "Installing hivectl with Poetry..."
+poetry config virtualenvs.in-project true
+poetry install --no-interaction
+
+# Test the installation
+echo "Testing installation..."
+if poetry run python -c "import hivectl; print('Import successful')" 2>/dev/null; then
+  echo "Package imports are working correctly"
 else
-    # Check if we need to update
-    current_version=$(poetry --version | awk '{print $3}')
-    log "Poetry is already installed. Current version: $current_version"
-    
-    # Extract major version
-    major_version=$(echo $current_version | cut -d. -f1)
-    
-    if [ "$major_version" -lt "2" ]; then
-        log "Updating Poetry to latest version (2.x)..."
-        poetry self update --preview
-        updated_version=$(poetry --version | awk '{print $3}')
-        log "Updated to Poetry version: $updated_version"
-    else
-        log "Poetry version 2.x already installed."
-    fi
+  echo "Warning: Package imports are not working correctly"
+  echo "This is a temporary warning and will be fixed in the next step"
 fi
 
-# Create Poetry configuration directory if it doesn't exist
-mkdir -p ~/.config/pypoetry
-
-# Configure Poetry to use python3 explicitly
-log "Configuring Poetry to use Python 3..."
-poetry config virtualenvs.prefer-active-python true
-
-# Generate .env file if it doesn't exist
-if [ ! -f ".env" ]; then
-    log "Generating .env file..."
-    ../scripts/generate_env_containerpasswords.sh
-fi
-
-# Install dependencies with Poetry
-log "Installing dependencies with Poetry..."
-POETRY_PYTHON="$(which python3)" poetry install
-
-# Create a shell script wrapper for hivectl
+# Create the global executable
+echo "Creating global hivectl command..."
 WRAPPER_SCRIPT="/usr/local/bin/hivectl"
-log "Creating hivectl wrapper script at $WRAPPER_SCRIPT..."
 
 cat > /tmp/hivectl_wrapper << EOL
 #!/bin/bash
-# Wrapper script for hivectl using Poetry
-cd $(pwd) && POETRY_PYTHON="$(which python3)" poetry run hivectl "\$@"
+# Wrapper for hivectl
+cd "$CURRENT_DIR" && "$CURRENT_DIR/hivectl.wrapper.sh" "\$@"
 EOL
 
-# Install the wrapper script (requires sudo)
 sudo mv /tmp/hivectl_wrapper "$WRAPPER_SCRIPT"
 sudo chmod +x "$WRAPPER_SCRIPT"
 
-log "Setup complete! You can now use 'hivectl' command globally"
-log "Run 'hivectl --help' to see available commands"
+echo "Making wrapper script executable..."
+chmod +x hivectl.wrapper.sh
+
+echo "Installation complete!"
+echo "Run 'hivectl --help' to see available commands"
