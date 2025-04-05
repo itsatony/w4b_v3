@@ -14,9 +14,9 @@ from .exceptions import (
     DuplicateHiveError,
     FileSystemError
 )
-from ..utils.id_generator import generate_hive_id
-from ..utils.file_operations import safe_write_yaml, safe_read_yaml, acquire_lock, release_lock
-from ..utils.security import SecurityUtils
+from .id_generator import generate_hive_id
+from .file_operations import safe_write_yaml, safe_read_yaml, acquire_lock, release_lock
+from .security import SecurityUtils
 
 class HiveManager:
     """
@@ -216,9 +216,8 @@ class HiveManager:
             # In production, this should be retrieved from the server
             server_public_key = "YOUR_SERVER_PUBLIC_KEY"
             
-            # Generate client IP (this would be assigned by the server in production)
-            # For now, we'll use a placeholder
-            client_ip = "10.10.0.X/32"
+            # Generate client IP based on existing hives to avoid conflicts
+            client_ip = self._allocate_client_ip()
             
             # Generate WireGuard configuration
             wg_config = SecurityUtils.generate_wireguard_config(
@@ -254,6 +253,40 @@ class HiveManager:
             
         except Exception as e:
             raise HiveConfigError(f"Failed to generate security credentials: {str(e)}")
+
+    def _allocate_client_ip(self) -> str:
+        """
+        Allocate a unique client IP for WireGuard.
+        
+        Returns:
+            A client IP in CIDR notation (e.g., "10.10.0.5/32")
+        """
+        # List existing hives to check for used IPs
+        existing_hives = self.list_hives()
+        used_ips = set()
+        
+        # Check for IPs already in use
+        for hive_id in existing_hives:
+            try:
+                config = self.get_hive(hive_id)
+                if 'security' in config and 'wireguard' in config['security']:
+                    if 'client_ip' in config['security']['wireguard']:
+                        ip = config['security']['wireguard']['client_ip']
+                        # Extract just the IP part without CIDR notation
+                        if '/' in ip:
+                            used_ips.add(ip.split('/')[0])
+            except Exception:
+                # Skip hives with errors
+                continue
+        
+        # Start from .2 (typically .1 is the server)
+        for i in range(2, 254):
+            candidate_ip = f"10.10.0.{i}"
+            if candidate_ip not in used_ips:
+                return f"{candidate_ip}/32"
+                
+        # If we somehow run out of IPs
+        raise HiveConfigError("No available IP addresses in the WireGuard subnet")
 
     def apply_security_credentials(self, hive_id: str, credentials: Dict[str, Any]) -> None:
         """
@@ -333,6 +366,28 @@ class HiveManager:
             raise HiveConfigError(f"No security credentials found for hive {hive_id}")
             
         return config['security']
+
+    def get_hive_path(self, hive_id: str) -> Path:
+        """
+        Get the file path for a hive configuration.
+        
+        Args:
+            hive_id: The ID of the hive
+            
+        Returns:
+            Path object for the hive configuration file
+        """
+        return self.base_path / f"{hive_id}.yaml"
+
+    def generate_hive_id(self) -> str:
+        """
+        Generate a unique hive ID.
+        
+        Returns:
+            A unique string in the format "hive_<nanoid>"
+        """
+        from .id_generator import generate_hive_id
+        return generate_hive_id()
 
     def _backup_config(self, hive_id: str) -> None:
         """Create a backup of a hive configuration"""

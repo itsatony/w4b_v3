@@ -5,7 +5,9 @@ from typing import Dict, Any, List
 import inquirer
 from prompt_toolkit.shortcuts import message_dialog, yes_no_dialog
 from prompt_toolkit.formatted_text import HTML
-from ..utils.id_generator import generate_sensor_id
+
+# Fix import to use correct package reference
+from ..core import generate_sensor_id
 
 class HivePrompts:
     """

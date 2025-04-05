@@ -13,7 +13,7 @@ REPO_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 WORK_DIR="/tmp/hive-generator"
 RASPIOS_URL="https://downloads.raspberrypi.org/raspios_lite_arm64_latest"
 CACHE_DIR="${WORK_DIR}/cache"
-HIVE_CONFIG_DIR="${REPO_ROOT}/hive_config_manager/hives"
+HIVE_CONFIG_DIR="${REPO_ROOT}/w4b_v3/hive_config_manager/hives"
 
 # Required environment variables or command-line parameters
 # - HIVE_ID: The ID of the hive to configure (must exist in hive_config_manager)
@@ -29,7 +29,7 @@ error() {
 }
 
 check_requirements() {
-    for cmd in udisksctl wget xz python3 yaml; do
+    for cmd in udisksctl wget xz python3; do
         if ! command -v $cmd &> /dev/null; then
             error "Required command '$cmd' not found"
         fi
@@ -104,6 +104,7 @@ get_hive_config() {
     local config_extractor=$(cat <<'EOF'
 import sys
 import yaml
+import shlex
 
 def get_config_value(config, path, default=None):
     """Safely get a value from nested dictionary using dot notation path"""
@@ -118,40 +119,51 @@ def get_config_value(config, path, default=None):
     
     return current
 
+# Function to quote values for shell
+def shell_quote(value):
+    """Properly quote a value for safe usage in shell"""
+    if value is None:
+        return '""'
+    return shlex.quote(str(value))
+
 try:
     with open(sys.argv[1], 'r') as f:
         config = yaml.safe_load(f)
     
     # Basic info
-    print(f'HIVE_ID={config.get("hive_id", "")}')
-    print(f'HIVE_NAME={get_config_value(config, "metadata.name", "")}')
-    print(f'TIMEZONE={get_config_value(config, "metadata.location.timezone", "UTC")}')
+    print(f'HIVE_ID={shell_quote(config.get("hive_id", ""))}')
+    print(f'HIVE_NAME={shell_quote(get_config_value(config, "metadata.name", ""))}')
+    print(f'TIMEZONE={shell_quote(get_config_value(config, "metadata.location.timezone", "UTC"))}')
     
     # Security section
     if "security" in config:
         # SSH
         ssh = get_config_value(config, "security.ssh", {})
-        print(f'SSH_PUBLIC_KEY={ssh.get("public_key", "")}')
-        print(f'SSH_PRIVATE_KEY={ssh.get("private_key", "")}')
-        print(f'SSH_PORT={ssh.get("port", "22")}')
+        print(f'SSH_PUBLIC_KEY={shell_quote(ssh.get("public_key", ""))}')
+        print(f'SSH_PRIVATE_KEY={shell_quote(ssh.get("private_key", ""))}')
+        print(f'SSH_PORT={shell_quote(ssh.get("port", "22"))}')
         
         # WireGuard
         wg = get_config_value(config, "security.wireguard", {})
-        print(f'WG_PRIVATE_KEY={wg.get("private_key", "")}')
-        print(f'WG_PUBLIC_KEY={wg.get("public_key", "")}')
-        print(f'WG_CONFIG={wg.get("config", "").replace("\n", "\\n")}')
-        print(f'WG_CLIENT_IP={wg.get("client_ip", "")}')
+        print(f'WG_PRIVATE_KEY={shell_quote(wg.get("private_key", ""))}')
+        print(f'WG_PUBLIC_KEY={shell_quote(wg.get("public_key", ""))}')
+        
+        # Handle multiline config with a temporary variable
+        wg_config = wg.get("config", "").replace("\n", "\\n")
+        print(f'WG_CONFIG={shell_quote(wg_config)}')
+        
+        print(f'WG_CLIENT_IP={shell_quote(wg.get("client_ip", ""))}')
         
         # Database
         db = get_config_value(config, "security.database", {})
-        print(f'DB_USERNAME={db.get("username", "hiveuser")}')
-        print(f'DB_PASSWORD={db.get("password", "")}')
-        print(f'DB_NAME={db.get("database", "hivedb")}')
+        print(f'DB_USERNAME={shell_quote(db.get("username", "hiveuser"))}')
+        print(f'DB_PASSWORD={shell_quote(db.get("password", ""))}')
+        print(f'DB_NAME={shell_quote(db.get("database", "hivedb"))}')
         
         # Local access
         local = get_config_value(config, "security.local_access", {})
-        print(f'LOCAL_USER={local.get("username", "hiveadmin")}')
-        print(f'LOCAL_PASSWORD={local.get("password", "")}')
+        print(f'LOCAL_USER={shell_quote(local.get("username", "hiveadmin"))}')
+        print(f'LOCAL_PASSWORD={shell_quote(local.get("password", ""))}')
 
 except Exception as e:
     print(f'ERROR={str(e)}', file=sys.stderr)
@@ -201,14 +213,12 @@ EOF
 configure_system() {
     # Base configuration
     log "Setting hostname to $HIVE_ID"
-    cat > "${ROOT_PATH}/etc/hostname" << EOF
-${HIVE_ID}
-EOF
+    echo "${HIVE_ID}" | sudo tee "${ROOT_PATH}/etc/hostname" > /dev/null
     
     # Setup TimescaleDB
     log "Configuring TimescaleDB"
-    mkdir -p "${ROOT_PATH}/etc/postgresql/13/main"
-    cat > "${ROOT_PATH}/etc/postgresql/13/main/postgresql.conf" << EOF
+    sudo mkdir -p "${ROOT_PATH}/etc/postgresql/13/main"
+    cat << EOF | sudo tee "${ROOT_PATH}/etc/postgresql/13/main/postgresql.conf" > /dev/null
 listen_addresses = 'localhost,10.10.0.1'
 max_connections = 100
 shared_buffers = 128MB
@@ -226,27 +236,27 @@ EOF
 
     # Setup SSH
     log "Configuring SSH access"
-    mkdir -p "${ROOT_PATH}/root/.ssh"
-    echo "${SSH_PUBLIC_KEY}" > "${ROOT_PATH}/root/.ssh/authorized_keys"
-    chmod 700 "${ROOT_PATH}/root/.ssh"
-    chmod 600 "${ROOT_PATH}/root/.ssh/authorized_keys"
+    sudo mkdir -p "${ROOT_PATH}/root/.ssh"
+    echo "${SSH_PUBLIC_KEY}" | sudo tee "${ROOT_PATH}/root/.ssh/authorized_keys" > /dev/null
+    sudo chmod 700 "${ROOT_PATH}/root/.ssh"
+    sudo chmod 600 "${ROOT_PATH}/root/.ssh/authorized_keys"
     
     # Optionally configure SSH private key (for edge-to-edge communication)
     if [ ! -z "$SSH_PRIVATE_KEY" ]; then
         log "Setting up SSH private key"
-        echo "$SSH_PRIVATE_KEY" > "${ROOT_PATH}/root/.ssh/id_ed25519"
-        chmod 600 "${ROOT_PATH}/root/.ssh/id_ed25519"
+        echo "$SSH_PRIVATE_KEY" | sudo tee "${ROOT_PATH}/root/.ssh/id_ed25519" > /dev/null
+        sudo chmod 600 "${ROOT_PATH}/root/.ssh/id_ed25519"
     fi
 
     # Setup WireGuard
     log "Configuring WireGuard VPN"
-    mkdir -p "${ROOT_PATH}/etc/wireguard"
-    echo "${WG_CONFIG}" > "${ROOT_PATH}/etc/wireguard/wg0.conf"
-    chmod 600 "${ROOT_PATH}/etc/wireguard/wg0.conf"
+    sudo mkdir -p "${ROOT_PATH}/etc/wireguard"
+    echo "${WG_CONFIG}" | sudo tee "${ROOT_PATH}/etc/wireguard/wg0.conf" > /dev/null
+    sudo chmod 600 "${ROOT_PATH}/etc/wireguard/wg0.conf"
 
     # Setup firstboot script
     log "Creating firstboot script"
-    cat > "${BOOT_PATH}/firstboot.sh" << EOF
+    cat << EOF | sudo tee "${BOOT_PATH}/firstboot.sh" > /dev/null
 #!/bin/bash
 set -e
 
@@ -285,11 +295,11 @@ rm /boot/firstboot.sh
 EOF
 
     # Make firstboot script executable
-    chmod +x "${BOOT_PATH}/firstboot.sh"
+    sudo chmod +x "${BOOT_PATH}/firstboot.sh"
     
     # Create firstboot service
     log "Creating firstboot service"
-    cat > "${ROOT_PATH}/etc/systemd/system/firstboot.service" << EOF
+    cat << EOF | sudo tee "${ROOT_PATH}/etc/systemd/system/firstboot.service" > /dev/null
 [Unit]
 Description=First Boot Setup for Hive ${HIVE_ID}
 After=network.target postgresql.service
@@ -304,12 +314,13 @@ WantedBy=multi-user.target
 EOF
 
     # Enable firstboot service
-    ln -sf "${ROOT_PATH}/etc/systemd/system/firstboot.service" "${ROOT_PATH}/etc/systemd/system/multi-user.target.wants/firstboot.service"
+    sudo mkdir -p "${ROOT_PATH}/etc/systemd/system/multi-user.target.wants"
+    sudo ln -sf "${ROOT_PATH}/etc/systemd/system/firstboot.service" "${ROOT_PATH}/etc/systemd/system/multi-user.target.wants/firstboot.service"
 
     # Add hive configuration
     log "Adding hive configuration to image"
-    mkdir -p "${ROOT_PATH}/etc/hive"
-    cp "$CONFIG_FILE" "${ROOT_PATH}/etc/hive/config.yaml"
+    sudo mkdir -p "${ROOT_PATH}/etc/hive"
+    sudo cp "$CONFIG_FILE" "${ROOT_PATH}/etc/hive/config.yaml"
     
     log "System configuration complete"
 }

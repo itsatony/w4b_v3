@@ -7,7 +7,7 @@ from datetime import datetime
 import pytz
 
 from .exceptions import ValidationError
-from ..utils.id_generator import is_valid_hive_id, is_valid_sensor_id
+from core import is_valid_hive_id, is_valid_sensor_id
 
 class ConfigValidator:
     """

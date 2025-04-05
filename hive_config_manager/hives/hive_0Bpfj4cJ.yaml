@@ -1,0 +1,98 @@
+hive_id: hive_0Bpfj4cJ
+version: 1.0.0
+metadata:
+  name: hans01
+  location:
+    address: Hilgertshausen
+    latitude: 48.123456
+    longitude: 11.123456
+    timezone: Europe/Berlin
+  notes: ''
+network:
+  primary: lan
+  lan:
+    dhcp: true
+administrators:
+- name: hans
+  email: hans01@itsatony.com
+  username: hans
+  phone: ''
+  role: hive_admin
+collector:
+  interval: 60
+  batch_size: 100
+  retry_attempts: 3
+  retry_delay: 5
+  buffer_size: 1000
+  logging:
+    level: INFO
+    max_size: 100M
+    retention: 7
+sensors: []
+maintenance:
+  backup:
+    enabled: true
+    interval: 86400
+    retention: 7
+  updates:
+    auto_update: true
+    update_hour: 3
+    allowed_days:
+    - Sunday
+  monitoring:
+    metrics_retention: 30
+    enable_detailed_logging: true
+security:
+  ssh:
+    private_key: '-----BEGIN OPENSSH PRIVATE KEY-----
+
+      b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+
+      QyNTUxOQAAACAIFLHdn9sUP4QaWa6OxeIyS3hxn8IY9P1WUWpNlpkLcAAAAJjmxJlK5sSZ
+
+      SgAAAAtzc2gtZWQyNTUxOQAAACAIFLHdn9sUP4QaWa6OxeIyS3hxn8IY9P1WUWpNlpkLcA
+
+      AAAEAjShoznJefqTJkqoZWRXyjL+vDjG7wPcG4hFrdgTELBggUsd2f2xQ/hBpZro7F4jJL
+
+      eHGfwhj0/VZRak2WmQtwAAAAEmhpdmUtaGl2ZV8wQnBmajRjSgECAw==
+
+      -----END OPENSSH PRIVATE KEY-----'
+    public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgUsd2f2xQ/hBpZro7F4jJLeHGfwhj0/VZRak2WmQtw
+      hive-hive_0Bpfj4cJ
+    enable_password_auth: false
+    allow_root: false
+    port: 22
+  wireguard:
+    private_key: 4NyDoECHaLbLuia1zw2Y8reIx2RmY6DR/GbLKi6w/kg=
+    public_key: i2wYVJZMl7VelX9GQVvtXVAwOxheiahFL3ZKJKRQPX4=
+    client_ip: 10.10.0.2/32
+    config: '[Interface]
+
+      PrivateKey = 4NyDoECHaLbLuia1zw2Y8reIx2RmY6DR/GbLKi6w/kg=
+
+      Address = 10.10.0.2/32
+
+      DNS = 1.1.1.1, 8.8.8.8
+
+
+      [Peer]
+
+      PublicKey = YOUR_SERVER_PUBLIC_KEY
+
+      Endpoint = queenb.vaudience.io:51820
+
+      AllowedIPs = 10.10.0.0/24
+
+      PersistentKeepalive = 25
+
+      '
+  database:
+    username: hiveuser
+    password: 3:QN`>~hHfR0z<>YpT_(
+    host: localhost
+    port: 5432
+    database: hivedb
+  local_access:
+    username: hiveadmin
+    password: :&ucHI_?,~"A5TYS
+    sudo_without_password: false

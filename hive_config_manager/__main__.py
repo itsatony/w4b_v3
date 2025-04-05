@@ -3,9 +3,17 @@
 import sys
 import argparse
 from pathlib import Path
-from .cli.interface import HiveManagerCLI
-from .core.manager import HiveManager
-from .core.exceptions import HiveConfigError
+
+try:
+    # When running as a package
+    from .cli.interface import HiveManagerCLI
+    from .core.manager import HiveManager
+    from .core.exceptions import HiveConfigError
+except ImportError:
+    # When running the file directly
+    from cli.interface import HiveManagerCLI
+    from core.manager import HiveManager
+    from core.exceptions import HiveConfigError
 
 def main():
     """Main entry point for the Hive Configuration Manager"""

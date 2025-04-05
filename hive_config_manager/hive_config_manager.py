@@ -14,10 +14,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 import nanoid
+import re
 
-from core.manager import HiveManager
-from core.exceptions import HiveConfigError, ConfigNotFoundError, ValidationError
-from utils.security import SecurityUtils
+# Fix imports for both direct execution and package usage
+if __name__ == "__main__":
+    # When run directly as a script, use absolute imports
+    from core.manager import HiveManager
+    from core.exceptions import HiveConfigError, ConfigNotFoundError, ValidationError
+    from core.security import SecurityUtils
+else:
+    # When imported as a module, use relative imports
+    from .core.manager import HiveManager
+    from .core.exceptions import HiveConfigError, ConfigNotFoundError, ValidationError
+    from .core.security import SecurityUtils
 
 class HiveManagerCLI:
     def __init__(self, base_path: str = None):
@@ -31,24 +40,62 @@ class HiveManagerCLI:
         """Interactive hive creation process"""
         print("\n=== Creating New Hive Configuration ===\n")
         
-        # Basic information gathering
+        # Define validation functions with correct signatures
+        def validate_non_empty(answers, current):
+            """Validate that input is not empty"""
+            return bool(current.strip())
+        
+        def validate_latitude(answers, current):
+            """Validate latitude is within range -90 to 90"""
+            if not current.strip():
+                return False
+            try:
+                lat = float(current)
+                return -90 <= lat <= 90
+            except ValueError:
+                return False
+                
+        def validate_longitude(answers, current):
+            """Validate longitude is within range -180 to 180"""
+            if not current.strip():
+                return False
+            try:
+                lon = float(current)
+                return -180 <= lon <= 180
+            except ValueError:
+                return False
+        
+        # Basic information gathering with validation and defaults
         questions = [
-            inquirer.Text('name', message="Hive name"),
-            inquirer.Text('location', message="Hive location address"),
-            inquirer.Text('latitude', message="Latitude (e.g., 48.123456)"),
-            inquirer.Text('longitude', message="Longitude (e.g., 11.123456)"),
+            inquirer.Text('name', 
+                          message="Hive name",
+                          validate=validate_non_empty),
+            inquirer.Text('location', 
+                          message="Hive location address",
+                          validate=validate_non_empty),
+            inquirer.Text('latitude', 
+                          message="Latitude (e.g., 48.123456)",
+                          validate=validate_latitude,
+                          default="48.123456"),
+            inquirer.Text('longitude', 
+                          message="Longitude (e.g., 11.123456)",
+                          validate=validate_longitude,
+                          default="11.123456"),
             inquirer.List('timezone',
                          message="Select timezone",
-                         choices=['Europe/Berlin', 'Europe/London', 'UTC']),
-            inquirer.Text('notes', message="Hive notes (optional)"),
+                         choices=['Europe/Berlin', 'Europe/London', 'UTC'],
+                         default='Europe/Berlin'),
+            inquirer.Text('notes', 
+                          message="Hive notes (optional)"),
         ]
         answers = inquirer.prompt(questions)
         
-        # Network configuration
+        # Network configuration with validation
         network_type = inquirer.prompt([
             inquirer.List('type',
                          message="Primary network connection",
-                         choices=['wifi', 'lan'])
+                         choices=['wifi', 'lan'],
+                         default='wifi')
         ])
         
         network_config = {'primary': network_type['type']}
@@ -63,18 +110,72 @@ class HiveManagerCLI:
                     break
                     
                 wifi = inquirer.prompt([
-                    inquirer.Text('ssid', message="WiFi SSID"),
-                    inquirer.Password('password', message="WiFi password"),
-                    inquirer.Text('priority', message="Priority (1=highest)", default="1")
+                    inquirer.Text('ssid', 
+                                  message="WiFi SSID",
+                                  validate=validate_non_empty),
+                    inquirer.Password('password', 
+                                      message="WiFi password",
+                                      validate=validate_non_empty),
+                    inquirer.Text('priority', 
+                                  message="Priority (1=highest)", 
+                                  default="1",
+                                  validate=lambda answers, current: current.isdigit() and int(current) > 0)
                 ])
                 wifi_networks.append({
                     'ssid': wifi['ssid'],
                     'password': wifi['password'],
                     'priority': int(wifi['priority'])
                 })
+            # Ensure at least one WiFi network is configured
+            if not wifi_networks:
+                print("Warning: No WiFi networks configured. Adding default test network.")
+                wifi_networks.append({
+                    'ssid': 'default_network',
+                    'password': 'change_this_password',
+                    'priority': 1
+                })
             network_config['wifi'] = wifi_networks
+        elif network_type['type'] == 'lan':
+            # Add LAN configuration options
+            lan_config = {}
+            
+            # Ask if DHCP should be used
+            dhcp = inquirer.prompt([
+                inquirer.Confirm('use_dhcp',
+                               message="Use DHCP?",
+                               default=True)
+            ])
+            
+            lan_config['dhcp'] = dhcp['use_dhcp']
+            
+            # If not using DHCP, collect static IP information
+            if not dhcp['use_dhcp']:
+                def validate_ip(answers, current):
+                    """Validate IP address format"""
+                    import re
+                    return bool(re.match(r'^(\d{1,3}\.){3}\d{1,3}$', current))
+                
+                static_config = inquirer.prompt([
+                    inquirer.Text('ip',
+                                message="Static IP address",
+                                validate=validate_ip),
+                    inquirer.Text('gateway',
+                                message="Gateway address",
+                                validate=validate_ip),
+                    inquirer.Text('dns',
+                                message="DNS servers (comma-separated)",
+                                validate=lambda answers, current: all(validate_ip(answers, ip.strip()) for ip in current.split(',')))
+                ])
+                
+                lan_config['static'] = {
+                    'ip': static_config['ip'],
+                    'gateway': static_config['gateway'],
+                    'dns': [dns.strip() for dns in static_config['dns'].split(',')]
+                }
+            
+            network_config['lan'] = lan_config
         
-        # Administrator configuration
+        # Administrator configuration with validation
         admins = []
         while True:
             add_admin = inquirer.prompt([
@@ -84,24 +185,44 @@ class HiveManagerCLI:
                 break
                 
             admin = inquirer.prompt([
-                inquirer.Text('name', message="Admin name"),
-                inquirer.Text('email', message="Admin email"),
-                inquirer.Text('username', message="Admin username"),
-                inquirer.Text('phone', message="Admin phone"),
+                inquirer.Text('name', 
+                              message="Admin name",
+                              validate=validate_non_empty),
+                inquirer.Text('email', 
+                              message="Admin email",
+                              validate=lambda answers, current: bool(re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', current))),
+                inquirer.Text('username', 
+                              message="Admin username",
+                              validate=lambda answers, current: bool(current.strip()) and ' ' not in current),
+                inquirer.Text('phone', 
+                              message="Admin phone"),
                 inquirer.List('role',
                             message="Admin role",
-                            choices=['hive_admin', 'hive_viewer'])
+                            choices=['hive_admin', 'hive_viewer'],
+                            default='hive_admin')
             ])
             admins.append(admin)
+        
+        # Ensure at least one admin is configured
+        if not admins:
+            print("Warning: No administrators configured. Adding default admin.")
+            admins.append({
+                'name': 'Default Admin',
+                'email': 'admin@example.com',
+                'username': 'admin',
+                'phone': '',
+                'role': 'hive_admin'
+            })
             
-        # Security configuration
+        # Security configuration with validation
         security_config = inquirer.prompt([
             inquirer.Confirm('generate_keys',
                             message="Generate security keys automatically?",
                             default=True),
             inquirer.Text('server_endpoint',
                         message="WireGuard server endpoint (IP:Port)",
-                        default="vpn.example.com:51820")
+                        default="vpn.example.com:51820",
+                        validate=lambda answers, current: bool(re.match(r'^[a-zA-Z0-9\.\-]+:\d+$', current)))
         ])
         
         # Generate configuration
@@ -213,10 +334,17 @@ class HiveManagerCLI:
         ])
         
         if save['save']:
+            # Get the hive ID from the current config being created
+            hive_id = self.manager.generate_hive_id()
+            
+            # Create filename in the hives folder
+            credentials_filename = f"{hive_id}_credentials.txt"
+            credentials_path = os.path.join(self.manager.base_path, credentials_filename)
+            
             file_path = inquirer.prompt([
                 inquirer.Text('path',
                             message="File path",
-                            default=f"{credentials['wireguard']['client_ip'].split('/')[0]}_credentials.txt")
+                            default=credentials_path)
             ])['path']
             
             try:
