@@ -1,0 +1,26 @@
+[Unit]
+Description=W4B Sensor Management System
+After=network.target timescaledb.service
+Wants=timescaledb.service
+
+[Service]
+Type=simple
+User=w4b
+Group=w4b
+WorkingDirectory=/opt/w4b/sensorManager
+ExecStart=/opt/w4b/sensorManager/venv/bin/python3 /opt/w4b/sensorManager/main.py --config /etc/w4b/sensor_config.yaml
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=w4b-sensors
+Environment=PYTHONUNBUFFERED=1
+
+# Security settings
+ProtectSystem=full
+PrivateTmp=true
+PrivateDevices=false
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

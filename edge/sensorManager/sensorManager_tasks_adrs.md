@@ -57,25 +57,51 @@
   - Created tests with mock data for validation
   - Added tests for calibration and metadata
 
+### Data Collection
+
+- [x] DONE: Implement main collection loop
+  - Created collection service with scheduling logic
+  - Implemented asynchronous collection for multiple sensors
+  - Added circuit breaker pattern for fault tolerance
+  - Created central management in main application
+- [x] DONE: Create collection interval management
+  - Implemented configurable collection intervals per sensor
+  - Added staggered collection to prevent sensor read contention
+  - Created dynamic collection scheduling
+- [x] DONE: Add basic buffering logic
+  - Implemented in-memory buffer for readings before persistence
+  - Added batch operations for database writes
+  - Created error handling for failed buffer flushes
+- [x] DONE: Implement retry mechanism for failed readings
+  - Added configurable retry counts per sensor
+  - Implemented exponential backoff for retries
+  - Added circuit breaker to prevent repeated failures
+
+### Local Database
+
+- [x] DONE: Setup TimescaleDB connection
+  - Created database connector with connection pooling
+  - Implemented retry logic for database operations
+  - Added circuit breaker pattern for database resilience
+  - Created singleton database manager
+- [x] DONE: Create schema for sensor readings
+  - Implemented hypertable creation for time-series data
+  - Added appropriate indexes for query performance
+  - Created setup script for schema initialization
+- [x] DONE: Implement data storage operations
+  - Added support for single and batch inserts
+  - Implemented transaction handling for batch operations
+  - Created query functions for recent and aggregated data
+- [x] DONE: Add basic retention policies
+  - Implemented TimescaleDB retention policies
+  - Added compression for efficient storage
+  - Created configurable data lifecycle management
+
 ### Dummy Sensor Implementations
 
 - [ ] TODO: Create dummy implementations for all other sensor types
 - [ ] TODO: Implement common sensor utilities
 - [ ] TODO: Add configuration parsers for all sensor types
-
-### Data Collection
-
-- [ ] TODO: Implement main collection loop
-- [ ] TODO: Create collection interval management
-- [ ] TODO: Add basic buffering logic
-- [ ] TODO: Implement retry mechanism for failed readings
-
-### Local Database
-
-- [ ] TODO: Setup TimescaleDB connection
-- [ ] TODO: Create schema for sensor readings
-- [ ] TODO: Implement data storage operations
-- [ ] TODO: Add basic retention policies
 
 ### Monitoring
 
@@ -86,9 +112,15 @@
 
 ### Integration
 
-- [ ] TODO: Create command-line interface
+- [x] DONE: Create command-line interface
+  - Implemented argument parsing for configuration path
+  - Added debug mode option
+  - Created clean shutdown handling
 - [ ] TODO: Add systemd service definition
-- [ ] TODO: Implement graceful shutdown and cleanup
+- [x] DONE: Implement graceful shutdown and cleanup
+  - Added signal handling for clean shutdown
+  - Implemented resource cleanup on exit
+  - Created proper error handling during shutdown
 - [ ] TODO: Create sample configuration files
 
 ## Architecture Decision Records (ADRs)
@@ -146,4 +178,16 @@
 - Context: Testing sensor implementations requires hardware that may not always be available during development.
 - Decision: We will use a test-driven approach with mock sensors that simulate real hardware behavior.
 - Consequences: This enables development and testing without physical hardware, speeds up the development cycle, and ensures consistent test environments. It requires careful design of mock implementations to accurately simulate real-world behavior.
+
+### ADR-10: Buffered Collection with Batch Database Operations
+
+- Context: We need to minimize database operations while ensuring timely data storage.
+- Decision: We will implement in-memory buffering of sensor readings with batch database operations.
+- Consequences: This reduces database load and improves efficiency by bundling multiple inserts into single operations. It temporarily increases memory usage and creates a small risk of data loss during crashes, but this is mitigated by configurable buffer sizes and flush intervals.
+
+### ADR-11: Circuit Breaker Pattern for Component Isolation
+
+- Context: Failed components (sensors or database) should not bring down the entire system.
+- Decision: We will implement the circuit breaker pattern for all external interactions (sensors, database).
+- Consequences: This prevents cascading failures by isolating problematic components, allowing the system to continue operating with reduced functionality. It automatically recovers when problems are resolved, improving overall system resilience.
 
