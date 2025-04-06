@@ -34,6 +34,18 @@ NEVER use var or const names that could conflict with libraries or commands. Alw
 
 We use the following conventions for Python code:
 
+- Environments & Dependencies: Use dedicated virtual environments (poetry). Manage dependencies strictly with Poetry for locked, reproducible builds.
+- Code Style & Readability: Adhere strictly to PEP 8. Use linters/formatters (ruff, black). Employ clear, descriptive names for variables, functions, and classes.
+- Modularity & Simplicity: Write small, focused functions/methods (DRY principle). Keep code complexity low.
+- Type Hinting: Use type hints consistently (def func(arg: str) -> bool:). Utilize static analysis (mypy).
+- Documentation: Write clear docstrings for public APIs (purpose, args, returns, raises). Comment only why, not what, for non-obvious code.
+- Error Handling: Catch specific exceptions. Avoid broad except: clauses. Log errors effectively.
+- Testing: Write unit and integration tests (pytest). Aim for good coverage and automate tests in CI/CD.
+- Configuration: Use environment variables or config files (e.g., via Pydantic Settings). Never hardcode secrets.
+- Security: Sanitize external inputs. Keep dependencies updated. Never commit secrets to version control.
+
+These are typical packages we use:
+
 - Use PEP 8 style guide for Python code.
 - Use type hints for function arguments and return types.
 - Use docstrings for function and class documentation.
@@ -51,8 +63,52 @@ We use the following conventions for Python code:
 - Use `numpy` for numerical operations.
 - Use `scipy` for scientific computing and advanced mathematical functions.
 
-We use poetry for package management and dependency management. We use a `pyproject.toml` file for configuration.
-We have not fully migrated to poetry yet, but we will do so in the future. parts of the python code still use venv and `requirements.txt` for the time being. New subprojects should use poetry and pyproject.toml.
+## CLI Output & Logging Standards
+
+- CLI Progress: For long tasks, use single-line progress bars (tqdm) showing progress, time elapsed/remaining.
+- CLI Interactivity: Use libraries like rich.prompt or questionary for user input (validation, defaults, choices).
+- Standard Logging: Use the logging module. Configure formatters for clear output: [timestamp] [module_name] [LEVEL] message. Use standard levels (DEBUG, INFO, WARNING, ERROR, CRITICAL) appropriately.
+- Structured Logging: Log in JSON format for aggregation systems like OpenSearch. Use libraries like python-json-logger. Include relevant context using the extra={...} parameter (e.g., request IDs, user IDs).
+- Error Reporting: Consider dedicated services (e.g., Sentry) for critical production error aggregation and alerting. Errors should be clearly identifyable with unique messages and codes if possible along with added information based on what is available (e.g., request ID, user ID, etc.).
+
+Example Output Explanation
+
+When you run the Python code above, you'll observe the following:
+
+1. Console Output:
+
+Configuration Loading: If you have a .env file, it might print messages related to loading it (this depends on the python-dotenv library's verbosity).
+
+Initial Log Messages: You'll see the INFO level messages formatted according to CONSOLE_LOG_FORMAT:
+[2025-04-06 14:25:00] [__main__] [INFO] Starting item processing application.
+
+User Prompt: The script will pause and ask for confirmation using rich:
+Proceed with processing items? [Y/n]:
+
+Progress Bar: If you confirm, tqdm will display a progress bar that updates in place:
+Processing 21 items...
+Processing Items: 100%|████████████████████| 21/21 [00:02<00:00,  8.50item/s]
+
+Potential Log Messages During Processing:
+You might see INFO or WARNING messages on the console if items are below threshold or skipped (since the console handler level is INFO). You won't see DEBUG messages here.
+[2025-04-06 14:25:01] [__main__] [INFO] Item item_005 below threshold (0.7531 < 0.9)
+[2025-04-06 14:25:02] [__main__] [WARNING] Item missing 'id' or 'data' field, skipping.
+
+Final Summary: Both a log message and a print statement will show the final counts:
+[2025-04-06 14:25:02] [__main__] [INFO] Processing complete. Successful: 15, Failed/Skipped: 6.
+Processing complete. Successful: 15, Failed/Skipped: 6.
+
+2. JSON Log File (app_log.jsonl):
+
+This file will contain one JSON object per line, including DEBUG level messages and the extra context, suitable for ingestion into OpenSearch.
+
+```jsonl
+{"timestamp": "2025-04-06T12:25:00.123456Z", "name": "__main__", "level": "INFO", "message": "Starting item processing application.", "filename": "your_script_name.py", "lineno": 150, "action": "start"}
+{"timestamp": "2025-04-06T12:25:00.123500Z", "name": "__main__", "level": "DEBUG", "message": "Configuration: API_ENDPOINT=https://api.example.com/process, THRESHOLD=0.9, LOG_FILE=app_log.jsonl", "filename": "your_script_name.py", "lineno": 151}
+{"timestamp": "2025-04-06T12:25:00.500100Z", "name": "__main__", "level": "DEBUG", "message": "Simulating API call for item item_000 to https://api.example.com/process", "filename": "your_script_name.py", "lineno": 65, "item_id": "item_000", "payload_keys": ["value"]}
+{"timestamp": "2025-04-06T12:25:02.500500Z", "name": "__main__", "level": "ERROR", "message": "API error processing item item_012: API call timed out for item item_012", "filename": "your_script_name.py", "lineno": 109, "item_id": "item_012", "error_type": "TimeoutError"}
+{"timestamp": "2025-04-06T12:25:02.900600Z", "name": "__main__", "level": "INFO", "message": "Processing complete. Successful: 15, Failed/Skipped: 6.", "filename": "your_script_name.py", "lineno": 175, "action": "complete", "success_count": 15, "fail_count": 6}
+```
 
 ### Markdown
 

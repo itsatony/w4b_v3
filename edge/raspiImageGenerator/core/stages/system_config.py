@@ -44,6 +44,17 @@ class SystemConfigStage(BuildStage):
             # Configure system settings
             await self._configure_system(self.boot_mount, self.root_mount)
             
+            # Set boot_mount and root_mount in state for use by later stages
+            self.state["boot_mount"] = self.boot_mount
+            self.state["root_mount"] = self.root_mount
+            
+            # Store loop device in state for cleanup at the end of the pipeline
+            self.state["loop_device"] = getattr(self, "loop_device", None)
+            
+            # IMPORTANT: Don't unmount here - other stages need the mounted partitions
+            # Save the unmounting for pipeline completion
+            self.logger.info("Partitions will remain mounted for subsequent stages")
+            
             return True
             
         except Exception as e:
@@ -52,9 +63,10 @@ class SystemConfigStage(BuildStage):
             self.logger.debug(traceback.format_exc())
             return False
         finally:
-            # Make sure we cleanup loop device and mounts if we're not using cached mounts
-            if getattr(self, "using_loop_device", False) and not getattr(self, "using_cached_mounts", False):
-                await self._cleanup_mounts()
+            # Only clean up on failure
+            if not getattr(self, "boot_mount", None) or not getattr(self, "root_mount", None):
+                if getattr(self, "using_loop_device", False):
+                    await self._cleanup_mounts()
     
     async def _setup_loop_device(self, image_path: Path) -> bool:
         """

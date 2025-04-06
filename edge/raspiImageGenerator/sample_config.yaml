@@ -1,71 +1,95 @@
-# W4B Raspberry Pi Image Generator Configuration
-version: "1.0.0"
-hive_id: "hive_test01"
+# W4B Raspberry Pi Image Generator - Sample Configuration
 
+# Base image settings
 base_image:
   version: "2023-12-05-raspios-bullseye-arm64-lite"
+  model: "pi4"
   url_template: "https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-{version}/2023-12-05-raspios-bullseye-arm64-lite.img.xz"
   checksum_type: "sha256"
-  checksum: "97e768a53c5ddf73eb68d40e71213548eaded6f059e1b83b9c8f1438a92a5baa"
-  model: "pi4"
+  # Checksum will be fetched dynamically if not provided
 
+# Hive identification
+hive_id: "test_hive_01"
+location: "Test Location"
+
+# System configuration
 system:
   hostname_prefix: "hive"
   timezone: "Europe/Berlin"
   locale: "en_US.UTF-8"
-  keyboard: "us"
+  keyboard: "de"
   ssh:
     enabled: true
     password_auth: true
     port: 22
+    # Add your public key here for passwordless login
+    # public_key: "ssh-rsa AAAAB3Nza..."
 
+# Security settings
 security:
   firewall:
     enabled: true
-    allow_ports: [22, 51820, 9100, 9102]
+    allow_ports: [22, 51820, 9100]
   vpn:
     type: "wireguard"
-    server: "vpn.example.com:51820"
+    # Replace with your VPN server details
+    server: "vpn.example.com"
     subnet: "10.10.0.0/24"
-    # These would be populated by the hive config manager in production:
-    # private_key: ""
-    # public_key: ""
-    # client_ip: "10.10.0.2/32"
+    # Add WireGuard configuration here
+    # config: |
+    #   [Interface]
+    #   PrivateKey = ...
+    #   Address = 10.10.0.2/24
+    #   
+    #   [Peer]
+    #   PublicKey = ...
+    #   Endpoint = vpn.example.com:51820
+    #   AllowedIPs = 10.10.0.0/24
 
+# Services configuration
 services:
   sensor_manager:
     enabled: true
     auto_start: true
+    config:
+      interval: 60
+      logging:
+        level: "INFO"
   monitoring:
     enabled: true
     metrics_port: 9100
   database:
     type: "timescaledb"
-    version: "latest"
-    username: "hive"
-    # password: "" # Will be populated by the hive config manager
     database: "hivedb"
+    username: "hiveuser"
+    password: "changeme"
     retention_days: 30
 
+# Software packages to install during firstboot
 software:
   packages:
-    - postgresql-14
-    - postgresql-14-timescaledb-2
-    - wireguard
-    - python3-pip
-    - python3-venv
-    - prometheus-node-exporter
-    - wget
-    - curl
+    - "postgresql-14"
+    - "postgresql-14-timescaledb-2"
+    - "wireguard"
+    - "python3-pip"
+    - "python3-venv"
+    - "git"
+    - "prometheus-node-exporter"
+    - "jq"
   python_packages:
-    - asyncpg
-    - asyncio
-    - pyyaml
-    - prometheus_client
+    - "asyncpg"
+    - "prometheus-client"
+    - "pyyaml"
+    - "psycopg2-binary"
+    - "aiohttp"
 
+# Output configuration
 output:
   directory: "/tmp"
   naming_template: "{timestamp}_{hive_id}"
   compress: true
   upload: false
-  # upload_url: "" # Will be configured for automatic upload if needed
+  upload_url: null
+
+# Cache settings
+cache_dir: "/tmp/w4b_image_cache"

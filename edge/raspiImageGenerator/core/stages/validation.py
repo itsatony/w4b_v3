@@ -164,18 +164,41 @@ class ValidationStage(BuildStage):
             
             root_mount = self.state["root_mount"]
             
-            # Define essential services to check
+            # Define essential services to check - use correct service names
             essential_services = [
-                "opt/w4b/sensorManager/sensor_manager.service",
-                "etc/systemd/system/sensor_manager.service"
+                "opt/w4b/sensorManager/w4b-sensor-manager.service",
+                "etc/systemd/system/w4b-firstboot.service"  # Created by software_install.py
             ]
             
+            # Add potential alternate service files
+            alternate_services = [
+                "etc/systemd/system/sensor-manager.service",  # Created by services.py
+            ]
+            
+            # Debug: List all systemd service files in the image
+            self.logger.debug("Listing all service files in the image:")
+            service_dir = root_mount / "etc/systemd/system"
+            if service_dir.exists():
+                for service_file in service_dir.glob("*.service"):
+                    self.logger.debug(f"Found service file: {service_file.relative_to(root_mount)}")
+            
+            # Check for required services
             missing_services = []
             for service_path in essential_services:
                 full_path = root_mount / service_path
                 if not full_path.exists():
-                    missing_services.append(service_path)
-                    self.logger.debug(f"Missing service: {full_path}")
+                    # Check if any of the alternate services exist instead
+                    alternate_found = False
+                    for alt_service in alternate_services:
+                        alt_path = root_mount / alt_service
+                        if alt_path.exists():
+                            self.logger.info(f"Found alternate service: {alt_service} instead of {service_path}")
+                            alternate_found = True
+                            break
+                    
+                    if not alternate_found:
+                        missing_services.append(service_path)
+                        self.logger.debug(f"Missing service: {full_path}")
             
             if missing_services:
                 return False, f"Essential services not found: {', '.join(missing_services)}"

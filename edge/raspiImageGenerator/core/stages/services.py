@@ -255,8 +255,8 @@ class ServiceConfigStage(BuildStage):
         service_dir = root_mount / "etc/systemd/system"
         service_dir.mkdir(exist_ok=True, parents=True)
         
-        # Create sensor manager service
-        with open(service_dir / "sensor-manager.service", "w") as f:
+        # Create sensor manager service with consistent naming
+        with open(service_dir / "w4b-sensor-manager.service", "w") as f:
             f.write("[Unit]\n")
             f.write("Description=W4B Sensor Manager Service\n")
             f.write("After=network.target postgresql.service\n")
@@ -302,13 +302,13 @@ class ServiceConfigStage(BuildStage):
             "chmod 755 /opt/w4b/sensor_manager\n",
             "chmod 755 /var/log/hive\n",
             
-            # Enable and start service if auto_start is true
+            # Enable and start service with consistent naming
             "systemctl daemon-reload\n",
-            "systemctl enable sensor-manager.service\n",
+            "systemctl enable w4b-sensor-manager.service\n",
         ]
         
         if auto_start:
-            sensor_lines.append("systemctl start sensor-manager.service\n")
+            sensor_lines.append("systemctl start w4b-sensor-manager.service\n")
             
         sensor_lines.append("\n")
         

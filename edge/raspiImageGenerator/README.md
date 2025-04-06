@@ -1,99 +1,171 @@
-# Raspberry Pi Image Generator for W4B
+# W4B Raspberry Pi Image Generator
+
+A tool for generating customized Raspberry Pi OS images for W4B hive monitoring systems.
 
 ## Overview
 
-The Raspberry Pi Image Generator is a critical component of the W4B (we4bee) platform. It creates customized, production-ready Raspberry Pi OS images for edge devices that come pre-configured with all necessary software, security settings, and connectivity options.
-
-## Purpose
-
-This system provides a reproducible, automated way to generate standardized Raspberry Pi images that:
-
-1. Work consistently across the hive monitoring network
-2. Include all required security configurations
-3. Come pre-installed with sensor management software
-4. Support automatic connection to the central hub
-5. Include monitoring and diagnostic capabilities
-6. Are reproducible and version-tracked
+The W4B Raspberry Pi Image Generator creates customized Raspberry Pi OS images with pre-configured settings, software, and security for beehive monitoring systems. The generator downloads a base Raspberry Pi OS image, modifies it with configuration settings, and prepares firstboot scripts that will complete the setup when the Raspberry Pi boots for the first time.
 
 ## Key Features
 
-- Declarative configuration through YAML files
-- Comprehensive environment variable support
-- Multi-stage build process with validation
-- Support for multiple Raspberry Pi hardware versions
-- Pre-configured security settings including WireGuard VPN
-- TimescaleDB and data collection tools pre-installed
-- System monitoring and diagnostics
-- Automated deployment to download servers
-- Verification and testing capabilities
+- **Declarative Configuration**: Define image properties in YAML format
+- **Firstboot Auto-Installation**: Packages and software are installed on first boot
+- **Configuration Inheritance**: Use template configurations for multiple hives
+- **WireGuard VPN Support**: Automatic VPN configuration for secure connections
+- **Security Hardening**: SSH hardening, firewall configuration, and secure defaults
+- **Sensor Manager Integration**: Automatic setup of the W4B sensor management system
 
 ## Architecture
 
-The image generator follows a multi-stage pipeline:
+The image generator uses a firstboot script approach rather than trying to emulate ARM architecture during image creation. This provides several advantages:
 
-1. **Configuration** - Parse and validate input parameters
-2. **Base Image** - Download and prepare base OS image
-3. **OS Configuration** - Apply basic system settings
-4. **Software Installation** - Install required packages and dependencies
-5. **Security Setup** - Configure SSH, VPN, firewall, and encryption
-6. **Service Configuration** - Set up systemd services and startup scripts
-7. **W4B Software Installation** - Install and configure all W4B components
-8. **Customization** - Apply hive-specific configurations
-9. **Validation** - Verify the generated image meets requirements
-10. **Compression & Distribution** - Prepare for distribution
+- More reliable image generation
+- Better compatibility across different Raspberry Pi models
+- Smaller initial images
+- Native installation on target hardware
+
+### Pipeline Stages
+
+1. **Configuration**: Parse and validate configuration files
+2. **Download**: Acquire and verify base Raspberry Pi OS image
+3. **Mount**: Mount image partitions for modification
+4. **System Configuration**: Configure basic system settings (hostname, locale, etc.)
+5. **Security Configuration**: Set up SSH keys, WireGuard VPN, firewall
+6. **Software Installation Scripts**: Prepare firstboot scripts for package installation
+7. **W4B Software Setup**: Configure W4B-specific software and services
+8. **Validation**: Verify image modifications
+9. **Compression**: Prepare final image for distribution
+
+## Requirements
+
+- Linux host system (with losetup, mount, etc.)
+- Python 3.9+
+- Required packages: xz-utils, kpartx, parted
+- Internet connection for downloading base images and packages
+
+## Installation
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourorg/w4b_v3.git
+   cd w4b_v3/edge/raspiImageGenerator
+   ```
+
+2. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+3. Ensure system dependencies are installed:
+   ```
+   sudo apt update
+   sudo apt install xz-utils kpartx parted
+   ```
 
 ## Usage
 
 ### Basic Usage
 
 ```bash
-python image_generator.py --hive-id <HIVE_ID> --output-dir /path/to/output
+python image_generator.py --config configs/sample_config.yaml --hive-id hive1
 ```
+
+### Detailed Debugging
+
+For detailed logging and debugging:
+
+```bash
+clear && python image_generator.py --config configs/hive_0Bpfj4cT_pi3.yaml --hive-id hive_0Bpfj4cT --verbose
+```
+
+## Debugging Tools
+
+The following tools are available to help diagnose and troubleshoot issues with the image generation process.
+
+### Using run_debug.sh
+
+The `run_debug.sh` script performs comprehensive system checks before running the image generator:
+
+```bash
+./run_debug.sh
+```
+
+Example output:
+```
+=== System Information ===
+Linux hostname 5.15.0-92-generic #102-Ubuntu SMP Wed Jan 10 10:37:04 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux
+Python version: Python 3.10.12
+Available disk space: 35G
+
+=== Checking Dependencies ===
+✓ losetup found: /usr/sbin/losetup
+✓ mount found: /usr/bin/mount
+✓ umount found: /usr/bin/umount
+✓ partprobe found: /usr/sbin/partprobe
+✓ kpartx found: /usr/sbin/kpartx
+✓ xz found: /usr/bin/xz
+
+=== Checking Python Modules ===
+✓ yaml installed
+✓ aiohttp installed
+✓ pathlib installed
+
+=== Running Image Generator with Debug Logging ===
+...
+```
+
+This script:
+
+1. Checks system information and available disk space
+2. Verifies all required system binaries are installed
+3. Confirms Python dependencies are available
+4. Runs the image generator with DEBUG logging level
+
+### Stage-by-Stage Debugging
+
+To debug specific stages of the pipeline, you can use the verbose flag and filter the logs:
+
+```bash
+python image_generator.py --config configs/sample_config.yaml --hive-id test_hive --verbose 2>&1 | grep "stage\."
+```
+
+This will show only the stage-related log messages, helping you identify which stage might be failing.
 
 ### Configuration Options
 
-The generator supports both command-line arguments and environment variables:
-
-| Option | Environment Variable | Description |
-|--------|---------------------|-------------|
-| --hive-id | W4B_HIVE_ID | ID of the hive to generate an image for |
-| --output-dir | W4B_IMAGE_OUTPUT_DIR | Directory to store generated images |
-| --raspios-version | W4B_RASPIOS_VERSION | Version of Raspberry Pi OS to use |
-| --pi-model | W4B_PI_MODEL | Raspberry Pi model (3, 4, or 5) |
-| --timezone | W4B_TIMEZONE | Default timezone |
-| --download-server | W4B_DOWNLOAD_SERVER | Server URL for downloads |
-| --vpn-server | W4B_VPN_SERVER | WireGuard VPN server endpoint |
-| --config-file | W4B_CONFIG_FILE | Path to YAML configuration file |
-
-### Advanced Configuration
-
-For more detailed configuration, a YAML file can be provided:
+Create a YAML configuration file like this:
 
 ```yaml
-# Example configuration
 base_image:
-  version: "2023-12-05"
+  version: "2023-12-05-raspios-bullseye-arm64-lite"
   model: "pi4"
-  checksum: "sha256:abcdef1234567890"
 
 system:
   hostname_prefix: "hive"
   timezone: "Europe/Berlin"
   locale: "en_US.UTF-8"
   keyboard: "us"
+
+security:
   ssh:
     enabled: true
     password_auth: false
-    port: 22
-
-security:
+    public_key: "ssh-rsa AAAA..."
+  vpn:
+    type: "wireguard"
+    server: "vpn.example.com"
+    config: |
+      [Interface]
+      PrivateKey = ...
+      Address = 10.10.0.2/24
+      
+      [Peer]
+      PublicKey = ...
+      Endpoint = vpn.example.com:51820
+      AllowedIPs = 10.10.0.0/24
   firewall:
     enabled: true
     allow_ports: [22, 51820, 9100]
-  vpn:
-    type: "wireguard"
-    server: "vpn.example.com:51820"
-    subnet: "10.10.0.0/24"
 
 services:
   sensor_manager:
@@ -104,250 +176,74 @@ services:
     metrics_port: 9100
   database:
     type: "timescaledb"
-    version: "latest"
     retention_days: 30
-    auto_backup: true
 
 software:
   packages:
-    - postgresql-14
-    - postgresql-14-timescaledb-2
-    - wireguard
-    - python3-pip
-    - python3-venv
-  python_requirements:
-    file: "requirements.txt"
+    - "postgresql-14"
+    - "postgresql-14-timescaledb-2"
+    - "wireguard"
+    - "python3-pip"
+    - "prometheus-node-exporter"
+  python_packages:
+    - "asyncpg"
+    - "prometheus-client"
+    - "pyyaml"
 ```
 
-## Integration Points
+### Environment Variables
 
-The Image Generator integrates with other W4B components:
+You can override configuration settings with environment variables:
 
-- **Hive Configuration Manager**: Sources hive-specific configurations
-- **Security Framework**: Obtains SSH keys and VPN credentials
-- **Sensor Management System**: Installs the latest sensor collection software
-- **Monitoring System**: Configures metrics collection and reporting
-- **VPN Management**: Sets up secure connections to the hub
+- `W4B_HIVE_ID`: ID of the hive to configure
+- `W4B_IMAGE_OUTPUT_DIR`: Directory for the output image
+- `W4B_RASPIOS_VERSION`: Version of Raspberry Pi OS to use
+- `W4B_PI_MODEL`: Raspberry Pi model to target
+- `W4B_TIMEZONE`: System timezone
+- `W4B_VPN_SERVER`: VPN server address
 
-## Development Guide
+## First Boot Process
 
-### Requirements
+When the generated image boots on a Raspberry Pi for the first time, it will:
 
-- Python 3.9+
-- Required Python packages:
-  - pybuild
-  - pyyaml
-  - jinja2
-  - cryptography
-  - paramiko
-
-### Setup Development Environment
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install requirements
-pip install -r requirements.txt
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run a specific test
-pytest tests/test_image_builder.py
-```
-
-### Building Documentation
-
-```bash
-# Generate documentation
-sphinx-build -b html docs/source docs/build
-```
-
-## Requirements for Cross-Architecture Support
-
-The Raspberry Pi Image Generator needs to work with ARM-based files on potentially x86 host systems. For this to work properly, you need to have QEMU user-mode emulation set up on your system:
-
-```bash
-# Install qemu and binfmt support
-sudo apt-get update
-sudo apt-get install -y qemu-user-static binfmt-support
-
-# Register binfmt handlers
-sudo update-binfmts --enable qemu-arm
-```
-
-Alternatively, you can use the included setup script:
-
-```bash
-sudo python3 utils/setup_qemu.py
-```
-
-### Common Issues
-
-1. **Exec format error**: If you see "Exec format error" in the logs, it means QEMU is not properly set up for ARM emulation on your system. Run the setup script above.
-
-2. **Package installation failures**: These are now handled by creating scripts that run on the Raspberry Pi during first boot, rather than trying to execute ARM binaries during image creation.
+1. Run the firstboot script from the boot partition
+2. Install all required packages
+3. Configure the system according to specifications
+4. Set up the W4B sensor manager and services
+5. Enable secure communications via WireGuard VPN
+6. Configure monitoring and databases
+7. Remove the firstboot script to prevent re-execution
 
 ## Troubleshooting
 
-Common issues and solutions:
+### Image Generation Fails
 
-- **Permission Errors**: Ensure you have sufficient privileges to mount loop devices
-- **Network Issues**: Check connectivity if image download fails
-- **Space Issues**: At least 10GB free space is required for image generation
-- **Validation Failures**: See logs in the output directory for detailed errors
+- Check disk space (at least 8GB required)
+- Ensure all dependencies are installed
+- Check network connectivity for downloads
 
-## Real-World Image Generation Example
+### First Boot Issues
 
-This section walks through generating a Raspberry Pi image using a real hive configuration from the hive configuration manager.
+- Enable debug logging in firstboot scripts
+- Check `/boot/firstboot.log` on the Raspberry Pi
+- Ensure the Raspberry Pi has internet access during first boot
 
-### Prerequisites
+## Development
 
-1. Access to the hive configuration from the hive configuration manager
-2. Sufficient disk space (~8GB for working files)
-3. Required permissions to run loop devices (root or sudo access)
-4. Python environment with all dependencies installed
+### Adding a New Stage
 
-### Step 1: Prepare the Configuration
+1. Create a new class in `core/stages/` inheriting from `BuildStage`
+2. Implement the `execute()` method
+3. Add the stage to the pipeline in `core/pipeline.py`
 
-First, convert the hive configuration into a format suitable for the image generator:
+### Testing
 
-```bash
-# Create a directory for your configurations if it doesn't exist
-mkdir -p configs
-
-# Use the built-in conversion utility (alternative to manually creating the config file)
-python -m utils.config_converter --hive-config /path/to/hive_config.yaml --output configs/hive_image_config.yaml --pi-model 3
-```
-
-Alternatively, you can manually create the configuration file as shown in the example below.
-
-### Step 2: Install Dependencies
-
-Before running the image generator, make sure to install all the required dependencies with sudo (since the image generator requires root privileges):
+Run basic validation tests:
 
 ```bash
-# Install dependencies as root/sudo user
-sudo pip install -r requirements.txt
+python -m unittest discover tests
 ```
 
-This step is crucial because running the script with sudo uses the system's Python environment, not your user environment.
+## License
 
-### Step 3: Run the Image Generator
-
-Generate the image using the configuration file:
-
-```bash
-# Generate the image
-sudo python image_generator.py --config-file configs/hive_0Bpfj4cT_pi3.yaml --verbose
-```
-
-The image generator will:
-
-1. Download the appropriate Raspberry Pi OS base image
-2. Mount and modify the image with custom settings
-3. Install required software packages
-4. Configure security settings (SSH, VPN, firewall)
-5. Set up the sensor management system
-6. Validate the generated image
-7. Compress and prepare the final image
-
-The output will be stored in the directory specified in the configuration file.
-
-### Step 4: Verify the Generated Image
-
-Verify the generated image:
-
-```bash
-# Check the image integrity
-python image_generator.py --verify --image-file /tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img.xz
-```
-
-### Step 5: Deploy the Image
-
-The image can now be written to an SD card using standard tools:
-
-```bash
-# Write the image to an SD card (Linux example)
-xzcat /tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
-```
-
-### Example: Generating an Image for Raspberry Pi 3 Using Hive Configuration
-
-Here's a complete example using a real hive configuration to generate a Raspberry Pi 3 image:
-
-```bash
-# Clone the repository if you haven't already
-git clone https://github.com/itsatony/w4b_v3.git
-cd w4b_v3/edge/raspiImageGenerator
-
-# Make sure your environment is set up
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Generate the image (using a pre-prepared configuration)
-sudo python image_generator.py --config-file configs/hive_0Bpfj4cT_pi3.yaml --output-dir /tmp/generated_images
-
-# After generation, the image will be at:
-# /tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img.xz
-
-# Write the image to an SD card
-sudo dd if=/tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img of=/dev/sdX bs=4M status=progress
-```
-
-### Troubleshooting Common Issues
-
-1. **Insufficient Disk Space**: Ensure at least 8GB free space for working files
-2. **Permission Errors**: Run with sudo to access loop devices
-3. **Network Issues**: Check your internet connection if base image download fails
-4. **Mount Failures**: Ensure loop devices are available on your system
-5. **SSH Key Format**: Ensure SSH keys are properly formatted in the configuration
-6. **WireGuard Configuration**: Check WireGuard endpoint and key formats
-
-### Advanced: Automating Image Generation
-
-For automated generation of multiple images, create a script:
-
-```python
-import subprocess
-import glob
-import os
-
-HIVE_CONFIG_DIR = "/path/to/hive_configs"
-OUTPUT_DIR = "/path/to/output"
-
-# Find all hive configs
-hive_configs = glob.glob(f"{HIVE_CONFIG_DIR}/*.yaml")
-
-for config_file in hive_configs:
-    hive_id = os.path.basename(config_file).replace(".yaml", "")
-    output_file = f"{OUTPUT_DIR}/{hive_id}_pi3.img.xz"
-    
-    # Generate Raspberry Pi 3 compatible configuration
-    subprocess.run([
-        "python", "-m", "utils.config_converter",
-        "--hive-config", config_file,
-        "--output", f"/tmp/{hive_id}_pi3_config.yaml",
-        "--pi-model", "3"
-    ])
-    
-    # Generate the image
-    subprocess.run([
-        "sudo", "python", "image_generator.py",
-        "--config-file", f"/tmp/{hive_id}_pi3_config.yaml",
-        "--output-dir", OUTPUT_DIR,
-        "--verbose"
-    ])
-    
-    print(f"Generated image for {hive_id}: {output_file}")
-```
-
-This script will automatically convert configurations and generate images for multiple hives.
-
+MIT

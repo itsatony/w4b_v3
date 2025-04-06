@@ -19,10 +19,10 @@ from core.image import ImageBuilder
 from core.stages.base import BuildStage
 from core.stages.download import DownloadStage
 from core.stages.system_config import SystemConfigStage
-from core.stages.software import SoftwareInstallStage
+from core.stages.software_install import SoftwareInstallStage
 from core.stages.security import SecurityConfigStage
 from core.stages.services import ServiceConfigStage
-from core.stages.w4b import W4BSoftwareStage
+from core.stages.w4b_software import W4BSoftwareStage
 from core.stages.validation import ValidationStage
 from core.stages.compression import CompressionStage
 
@@ -186,3 +186,67 @@ class BuildPipeline:
                 await self.image_builder.unmount_image()
             except Exception as e:
                 self.logger.error(f"Error during cleanup: {str(e)}")
+            # Clean up mounted filesystems and loop devices at the end
+            await self._cleanup_resources()
+    
+    async def _cleanup_resources(self) -> None:
+        """Clean up resources used by the pipeline."""
+        try:
+            # Unmount filesystems if they're still mounted
+            await self._unmount_filesystems()
+            
+            # Detach loop devices
+            await self._detach_loop_devices()
+            
+        except Exception as e:
+            self.logger.error(f"Error during resource cleanup: {str(e)}")
+    
+    async def _unmount_filesystems(self) -> None:
+        """Unmount filesystems if they're still mounted."""
+        try:
+            boot_mount = self.state.get("boot_mount")
+            root_mount = self.state.get("root_mount")
+            
+            if boot_mount and Path(boot_mount).exists():
+                self.logger.info(f"Unmounting boot partition: {boot_mount}")
+                process = await asyncio.create_subprocess_exec(
+                    "umount", "-f", str(boot_mount),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode != 0 and stderr:
+                    self.logger.warning(f"Failed to unmount boot partition: {stderr.decode()}")
+            
+            if root_mount and Path(root_mount).exists():
+                self.logger.info(f"Unmounting root partition: {root_mount}")
+                process = await asyncio.create_subprocess_exec(
+                    "umount", "-f", str(root_mount),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode != 0 and stderr:
+                    self.logger.warning(f"Failed to unmount root partition: {stderr.decode()}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error unmounting filesystems: {str(e)}")
+    
+    async def _detach_loop_devices(self) -> None:
+        """Detach loop devices if they're still attached."""
+        try:
+            loop_device = self.state.get("loop_device")
+            
+            if loop_device:
+                self.logger.info(f"Detaching loop device: {loop_device}")
+                process = await asyncio.create_subprocess_exec(
+                    "losetup", "-d", loop_device,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode != 0 and stderr:
+                    self.logger.warning(f"Failed to detach loop device: {stderr.decode()}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error detaching loop devices: {str(e)}")

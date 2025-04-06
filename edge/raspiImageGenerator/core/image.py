@@ -16,6 +16,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union
+import datetime  # This imports the module, not the class
+from datetime import datetime  # Add this line to import the datetime class directly
 
 from utils.error_handling import DiskOperationError, NetworkError, retry
 
@@ -558,31 +560,32 @@ class ImageBuilder:
     
     async def compress_image(self, image_path: Path) -> Path:
         """
-        Compress a disk image for distribution.
+        Compress the image for distribution.
         
         Args:
-            image_path: Path to the image to compress
+            image_path: Path to the image file
             
         Returns:
             Path: Path to the compressed image
         """
-        self.logger.info(f"Compressing image: {image_path}")
-        
-        # Generate output filename
-        timestamp = self.config.get("timestamp", datetime.now().strftime("%Y%m%d-%H%M%S"))
-        hive_id = self.config["hive_id"]
-        output_filename = f"{timestamp}_{hive_id}.img.xz"
-        
-        # Get output directory from config or use work_dir
-        output_dir = Path(self.config["output"]["directory"])
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        output_path = output_dir / output_filename
-        
-        # Run xz compression
-        cmd = ["xz", "--threads=0", "-9", "-c", str(image_path)]
-        
         try:
+            self.logger.info(f"Compressing image: {image_path}")
+            
+            # Get output directory from config
+            output_dir = Path(self.config.get("output_dir", "/tmp"))
+            output_dir.mkdir(exist_ok=True, parents=True)
+            
+            # Generate timestamp if not provided
+            timestamp = self.config.get("timestamp", datetime.now().strftime("%Y%m%d-%H%M%S"))
+            
+            # Generate output filename
+            hive_id = self.config.get("hive_id", "unknown")
+            output_filename = f"w4b_hive_{hive_id}_{timestamp}.img.xz"
+            output_path = output_dir / output_filename
+            
+            # Run xz compression
+            cmd = ["xz", "--threads=0", "-9", "-c", str(image_path)]
+            
             with open(output_path, "wb") as f:
                 process = await asyncio.create_subprocess_exec(
                     *cmd,

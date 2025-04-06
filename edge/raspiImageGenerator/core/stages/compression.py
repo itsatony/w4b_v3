@@ -9,6 +9,8 @@ responsible for unmounting, compressing, and preparing the final image.
 import asyncio
 import os
 import shutil
+import json
+import datetime  # Ensure datetime is imported here too
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -84,9 +86,6 @@ class CompressionStage(BuildStage):
         self.logger.info(f"Creating metadata file: {metadata_path}")
         
         # Create metadata
-        import json
-        import datetime
-        
         metadata = {
             "hive_id": self.state["config"]["hive_id"],
             "version": self.state["config"].get("version", "1.0.0"),

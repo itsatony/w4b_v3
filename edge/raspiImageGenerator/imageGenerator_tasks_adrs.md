@@ -36,145 +36,42 @@
 
 - [x] DONE: Implement software installation module
   - [x] Create package installation mechanism
-  - [x] Add Python environment setup
-  - [x] Implement custom software installation
   - [x] Create service configuration utilities
+  - [x] Shift to firstboot script approach
+  - [x] Implement bootup triggered auto-installation
 
-- [x] DONE: Develop database setup module
-  - [x] Implement TimescaleDB installation
-  - [x] Add database initialization
-  - [x] Create user and schema setup
-  - [x] Implement retention policy configuration
+- [ ] TODO: Create documentation
+  - [ ] Update README with new approach
+  - [ ] Document configuration options
+  - [ ] Create usage examples
+  - [ ] Document troubleshooting steps
 
-- [x] DONE: Create sensor manager installation module
-  - [x] Implement code deployment
-  - [x] Add configuration file generation
-  - [x] Create service setup
-  - [x] Implement auto-start configuration
-
-- [x] DONE: Implement monitoring setup module
-  - [x] Add Prometheus node exporter
-  - [x] Implement custom metrics exporters
-  - [x] Create log collection setup
-  - [x] Add health check capabilities
-
-- [x] DONE: Develop image validation module
-  - [x] Implement structural validation
-  - [x] Add service availability checks
-  - [x] Create connectivity validation
-  - [x] Implement security verification
-
-- [x] DONE: Create compression and distribution module
-  - [x] Implement efficient compression
-  - [x] Add checksumming
-  - [x] Create metadata generation
-  - [x] Implement distribution to download servers
-
-### CLI and Integration
-
-- [x] DONE: Develop command-line interface
-  - [x] Implement argument parsing
-  - [x] Create progress reporting
-  - [x] Add interactive mode
-  - [x] Implement logging and error reporting
-
-- [x] DONE: Create integration with hive configuration manager
-  - [x] Implement configuration fetching
-  - [x] Add security credential acquisition
-  - [x] Create automatic updates
-  - [x] Implement validation against hub requirements
-
-### Documentation and Testing
-
-- [x] DONE: Create comprehensive documentation
-  - [x] Develop user guide
-  - [x] Create architecture documentation
-  - [x] Add API references
-  - [x] Create troubleshooting guide
-
-- [ ] TODO: Implement testing framework
-  - [x] DONE: Create unit tests
-  - [ ] TODO: Implement integration tests
-  - [ ] TODO: Add validation test suite
-  - [ ] TODO: Create CI/CD pipeline
+- [ ] TODO: Create testing framework
+  - [ ] Implement automated image verification
+  - [ ] Create integration tests
+  - [ ] Setup CI/CD pipeline
 
 ## Architecture Decision Records (ADRs)
 
-### ADR-1: Python-Based Image Generator Architecture
+### ADR: Switch from QEMU-based modification to firstboot script approach
 
-- Context: We need a reliable, maintainable system for generating custom Raspberry Pi images for the W4B edge devices.
-- Decision: We will implement a fully Python-based image generator using established libraries for disk image manipulation, templating, and validation.
-- Consequences: This approach gives us better maintainability, testing capabilities, error handling, and integration possibilities than a shell script approach. It requires more initial development time but will provide a more robust long-term solution.
+- Context: We encountered persistent issues with QEMU-based ARM emulation for modifying Raspberry Pi images. The approach was unreliable across different host systems and frequently failed with "No such file or directory" errors when attempting to use qemu-arm-static in chroot environments.
+- Decision: We will switch to a firstboot script approach where we prepare the image with scripts that run automatically when the Raspberry Pi boots for the first time. This will handle package installation, service configuration, and system setup.
+- Consequences: 
+  - More reliable image generation as we no longer depend on QEMU emulation working correctly
+  - First boot will take longer as packages are installed at that time rather than during image creation
+  - Images will be smaller initially but require internet connectivity during first boot
+  - Better compatibility across different Raspberry Pi models as the setup happens natively on the target hardware
 
-### ADR-2: Declarative Configuration with YAML
+### ADR: Use TimescaleDB for time-series data storage
 
-- Context: We need a flexible, human-readable way to specify image configurations.
-- Decision: We will use YAML as the primary configuration format with support for environment variable substitution.
-- Consequences: YAML provides good readability and structure while allowing for complex configurations. It's widely used and has good library support. This approach separates configuration from implementation and makes it easier to manage different image variants.
+- Context: We need a database for storing time-series data from the sensors.
+- Decision: We will use TimescaleDB as our time-series database.
+- Consequences: We will need to set up TimescaleDB on the server and configure it for use with our API service.
 
-### ADR-3: Multi-Stage Build Pipeline
+### ADR: Implement multi-stage image preparation process
 
-- Context: Image generation requires several distinct steps that should be clearly separated.
-- Decision: We will implement a multi-stage pipeline architecture with clear stage boundaries and state passing.
-- Consequences: This approach improves maintainability by isolating concerns and makes it easier to resume from failures. It also enables better testing of individual stages and parallel execution where possible. The downside is slightly more complex architecture and potential overhead.
-
-### ADR-4: Direct Disk Image Manipulation vs. Chroot
-
-- Context: There are multiple approaches to modifying Raspberry Pi images, including mounting/modifying directly or using chroot environments.
-- Decision: We will use direct disk image manipulation with loop devices rather than chroot environments.
-- Consequences: Direct manipulation gives us more control and doesn't require running within the ARM environment or emulation. It's more efficient but requires careful cleanup of resources. We'll need to implement proper error handling to ensure loop devices are properly detached.
-
-### ADR-5: Comprehensive Validation and Testing
-
-- Context: Generated images need to be reliable and meet all requirements.
-- Decision: We will implement a comprehensive validation system that tests images before distribution.
-- Consequences: Validation adds an extra step but ensures higher quality and reduces deployment issues. We'll need to develop methods to test images without actual device deployment, potentially using QEMU or similar emulation.
-
-### ADR-6: Extensible Software Installation Framework
-
-- Context: Different hive deployments may need different software packages and configurations.
-- Decision: We will create a pluggable software installation framework that allows for easy addition of new packages and configurations.
-- Consequences: This approach gives us flexibility for future expansion but requires careful design of the plugin architecture. We'll need to ensure compatibility between software packages and manage dependencies effectively.
-
-### ADR-7: Integration with Hive Configuration Manager
-
-- Context: Image generation needs to be tightly integrated with the hive configuration system.
-- Decision: We will create direct integration points with the hive configuration manager to source hive settings, credentials, and requirements.
-- Consequences: This integration ensures consistency between hub configurations and edge device deployments. It creates a dependency but simplifies the overall system by avoiding duplicate configuration systems.
-
-### ADR-8: Support for Multiple Raspberry Pi Models
-
-- Context: The W4B platform may deploy on various Raspberry Pi hardware.
-- Decision: We will create a hardware abstraction layer that supports multiple Raspberry Pi models and allows for model-specific configurations.
-- Consequences: This approach increases flexibility but adds complexity. We'll need to test across multiple hardware platforms and maintain compatibility as new models are released.
-
-### ADR-9: Security-First Approach
-
-- Context: Edge devices need strong security to protect the overall system.
-- Decision: We will implement a security-first approach with secure defaults, minimal attack surface, and comprehensive hardening.
-- Consequences: This approach improves overall system security but may require more complex setup and potential trade-offs with usability. We'll need to ensure security measures don't interfere with legitimate operations.
-
-### ADR-10: Versioned and Reproducible Builds
-
-- Context: We need to ensure images can be reproduced exactly for debugging and auditing.
-- Decision: We will implement versioning and reproducibility features in the build process.
-- Consequences: This improves traceability and debugging capabilities but requires careful management of dependencies and build environments. We'll need to implement proper versioning for all components and record all build inputs.
-
-### ADR-11: Error Handling with Circuit Breaker Pattern
-
-- Context: The image generation process involves various external operations that can fail temporarily or permanently.
-- Decision: We will implement a circuit breaker pattern for fault tolerance and graceful degradation during image generation.
-- Consequences: This approach prevents cascading failures and improves resilience, but adds some complexity to the codebase. It enables automatic recovery from transient failures and clear reporting of persistent issues.
-
-### ADR-12: Containerized Deployment
-
-- Context: The image generator needs to run in various environments with consistent dependencies.
-- Decision: We will provide Docker/Podman containerization for the image generator to ensure consistent operation.
-- Consequences: Containerization ensures dependency consistency and simplifies deployment, but requires container runtime and potentially elevated permissions. It isolates the image generation process from the host system and makes it easier to manage.
-
-### ADR-13: Component-Based Architecture
-
-- Context: The image generator has several distinct responsibilities that should be modular and testable.
-- Decision: We will implement a component-based architecture with clear separation of concerns.
-- Consequences: This approach improves testability and maintainability but requires careful interface design between components. It enables parallel development and easier replacement of individual components in the future.
+- Context: Image generation involves several distinct stages that can fail independently.
+- Decision: We will implement a pipeline approach with discrete stages (download, mount, system config, software install, etc.) that can be run and debugged independently.
+- Consequences: Better error handling, more maintainable code, ability to resume from failures, and clearer logging and diagnostics.
 

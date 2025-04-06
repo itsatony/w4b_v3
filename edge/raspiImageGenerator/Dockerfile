@@ -1,6 +1,6 @@
 FROM python:3.9-slim
 
-# Install dependencies
+# Install dependencies - added qemu and binfmt setup
 RUN apt-get update && apt-get install -y \
     xz-utils \
     kpartx \
@@ -15,8 +15,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     rsync \
+    sudo \
+    file \
+    lsb-release \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Register binfmt handler for ARM binaries
+RUN [ -d /proc/sys/fs/binfmt_misc ] && update-binfmts --enable qemu-arm || echo "Binfmt not available, skipping"
 
 # Create app directory
 WORKDIR /app
