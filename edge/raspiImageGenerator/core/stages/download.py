@@ -29,7 +29,9 @@ class DownloadStage(BuildStage):
             url = url_template
             if "{version}" in url_template:
                 url = url_template.format(version=version)
-                
+            else:
+                url = f"{url_template}/{version}"
+            
             self.logger.info(f"Image URL: {url}")
             
             # Make sure we're working with the correct builder
@@ -65,4 +67,6 @@ class DownloadStage(BuildStage):
                 
         except Exception as e:
             self.logger.error(f"Error in download stage: {str(e)}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
             return False

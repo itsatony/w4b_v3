@@ -63,6 +63,40 @@ class ImageBuilder:
         self.extracted_cache_dir.mkdir(parents=True, exist_ok=True)
         self.downloads_cache_dir.mkdir(parents=True, exist_ok=True)
     
+    def generate_cache_path(self, version: str) -> Path:
+        """
+        Generate cache path for a given image version.
+        
+        Args:
+            version: Image version string
+            
+        Returns:
+            Path to the cached image
+        """
+        # Extract the base filename without directory parts
+        if '/' in version:
+            # For URLs like "raspios_lite_armhf-2024-11-19/2024-11-19-raspios-bookworm-armhf-lite.img.xz"
+            # We only want the filename part
+            base_name = version.split('/')[-1]
+        else:
+            base_name = version
+            
+        # Prevent double extension issue
+        if base_name.endswith('.img.xz.img.xz'):
+            base_name = base_name.replace('.img.xz.img.xz', '.img.xz')
+        elif base_name.endswith('.img.xz'):
+            # Keep as is - correct extension
+            pass
+        else:
+            # Add extension if missing
+            base_name = f"{base_name}.img.xz"
+            
+        # Create the cache directory for raspbian images
+        raspios_dir = self.downloads_cache_dir / "raspios"
+        raspios_dir.mkdir(parents=True, exist_ok=True)
+        
+        return raspios_dir / base_name
+    
     async def get_base_image(self, url: str, checksum: str = None, checksum_type: str = "sha256") -> Path:
         """
         Get the base image, either from cache or by downloading.
