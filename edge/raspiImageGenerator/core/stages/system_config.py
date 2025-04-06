@@ -21,37 +21,28 @@ class SystemConfigStage(BuildStage):
         try:
             self.logger.info("Starting stage: SystemConfigStage")
             
-            # Get the image path from state, looking for either base_image_path or image_path
-            if "base_image_path" in self.state:
-                image_path = self.state["base_image_path"]
-                self.logger.debug(f"Using base_image_path: {image_path}")
-            elif "image_path" in self.state:
-                image_path = self.state["image_path"]
-                self.logger.debug(f"Using image_path: {image_path}")
-            else:
-                raise KeyError("Neither 'image_path' nor 'base_image_path' found in state")
+            # Ensure mount points exist
+            if "image_path" not in self.state:
+                self.logger.error("Image path not found in state")
+                return False
             
-            # Check if image needs extraction (if it's an .xz file)
-            if str(image_path).endswith('.xz'):
-                self.logger.info("Image is compressed, extracting first...")
-                extracted_path = await self._extract_image(image_path)
-                self.state["image_path"] = extracted_path
-            else:
-                # Store the image path in the state dictionary under both keys for compatibility
-                self.state["image_path"] = image_path
+            image_path = self.state["image_path"]
+            self.logger.info(f"Configuring system settings for image: {image_path}")
             
-            # Now we're guaranteed to have image_path in the state
-            self.logger.info(f"Configuring system settings for image: {self.state['image_path']}")
+            # Setup loop device (required for cached images)
+            self.logger.info(f"Setting up loop device for: {image_path}")
+            if not await self._setup_loop_device(image_path):
+                self.logger.error("Failed to setup loop device")
+                return False
             
-            # Mount the image partitions
-            boot_mount, root_mount = await self._mount_image(self.state["image_path"])
-            
-            # Store mount points in state for other stages to use
-            self.state["boot_mount"] = boot_mount
-            self.state["root_mount"] = root_mount
+            # Now mount image partitions
+            self.logger.info(f"Mounting image partitions for: {image_path}")
+            if not await self._mount_image_partitions():
+                self.logger.error("Failed to mount image partitions")
+                return False
             
             # Configure system settings
-            await self._configure_system(boot_mount, root_mount)
+            await self._configure_system(self.boot_mount, self.root_mount)
             
             return True
             
@@ -59,112 +50,476 @@ class SystemConfigStage(BuildStage):
             self.logger.error(f"System configuration failed: {str(e)}")
             import traceback
             self.logger.debug(traceback.format_exc())
-            
-            # Make sure to unmount if we failed
-            if "boot_mount" in self.state and "root_mount" in self.state:
-                await self._unmount_image(self.state["boot_mount"], self.state["root_mount"])
-                
             return False
+        finally:
+            # Make sure we cleanup loop device and mounts if we're not using cached mounts
+            if getattr(self, "using_loop_device", False) and not getattr(self, "using_cached_mounts", False):
+                await self._cleanup_mounts()
     
-    async def _extract_image(self, compressed_path: Path) -> Path:
-        """Extract the compressed image."""
-        self.logger.info(f"Extracting image: {compressed_path}")
-        
-        # Determine output path (remove .xz extension)
-        output_path = Path(str(compressed_path).replace('.xz', ''))
-        
-        # Run xz to decompress
-        process = await asyncio.create_subprocess_exec(
-            'xz', '--decompress', '--keep', str(compressed_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            raise RuntimeError(f"Failed to extract image: {stderr.decode()}")
-        
-        self.logger.info(f"Extracted image to: {output_path}")
-        return output_path
-    
-    async def _mount_image(self, image_path: Path) -> Tuple[Path, Path]:
+    async def _setup_loop_device(self, image_path: Path) -> bool:
         """
-        Mount the boot and root partitions of the Raspberry Pi image.
+        Set up loop device for the image with enhanced validation.
+        
+        Args:
+            image_path: Path to the image file
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Check if we're using cached unpacked image
+            if "cached_unpacked_path" in self.state:
+                self.logger.info("Using cached unpacked image, no need for loop device")
+                self.using_cached_mounts = True
+                return True
+            
+            # Validate the image file first
+            if not await self._validate_image_file(image_path):
+                return False
+            
+            # Force detach any existing loop device with this image
+            await self._force_detach_existing_loops(image_path)
+            
+            # First try using losetup with better options
+            self.logger.info(f"Setting up loop device for: {image_path}")
+            result = await asyncio.create_subprocess_exec(
+                'losetup', '--partscan', '--find', '--show', str(image_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode != 0:
+                self.logger.error(f"Failed to set up loop device: {stderr.decode().strip()}")
+                return False
+            
+            self.loop_device = stdout.decode().strip()
+            if not self.loop_device:
+                self.logger.error("Failed to get loop device path")
+                return False
+                
+            self.logger.info(f"Loop device: {self.loop_device}")
+            self.using_loop_device = True
+            
+            # Wait longer to ensure kernel has time to recognize partitions
+            self.logger.info("Waiting for partitions to be recognized...")
+            await asyncio.sleep(5)  # Increased wait time
+            
+            # Get detailed information about the loop device
+            await self._debug_loop_device(self.loop_device)
+            
+            # Try to find the partitions
+            boot_part, root_part = await self._find_partitions(self.loop_device, image_path)
+            
+            if not boot_part or not root_part:
+                self.logger.error("Failed to identify partitions in the image")
+                await self._cleanup_loop_device(self.loop_device)
+                return False
+            
+            self.boot_partition = boot_part
+            self.root_partition = root_part
+            
+            self.logger.info(f"Using partitions: Boot={self.boot_partition}, Root={self.root_partition}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error setting up loop device: {str(e)}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
+            
+            if hasattr(self, 'loop_device') and self.loop_device:
+                await self._cleanup_loop_device(self.loop_device)
+            return False
+
+    async def _validate_image_file(self, image_path: Path) -> bool:
+        """
+        Validate the image file before attempting to mount it.
+        
+        Args:
+            image_path: Path to the image file
+            
+        Returns:
+            bool: True if valid, False otherwise
+        """
+        try:
+            self.logger.info(f"Validating image file: {image_path}")
+            
+            # Check if file exists
+            if not image_path.exists():
+                self.logger.error(f"Image file does not exist: {image_path}")
+                return False
+                
+            # Check file size
+            file_size = image_path.stat().st_size
+            if file_size < 1024 * 1024:  # At least 1MB
+                self.logger.error(f"Image file too small ({file_size} bytes): {image_path}")
+                return False
+                
+            self.logger.info(f"Image file size: {file_size / (1024*1024):.2f} MB")
+            
+            # Check file type with the 'file' command
+            file_result = await asyncio.create_subprocess_exec(
+                "file", str(image_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            file_stdout, _ = await file_result.communicate()
+            file_output = file_stdout.decode()
+            
+            self.logger.info(f"File type: {file_output.strip()}")
+            
+            # Basic validation - should contain boot sector in output for disk images
+            if "boot sector" not in file_output.lower() and "dos/mbr boot sector" not in file_output.lower():
+                self.logger.warning(f"File may not be a valid disk image: {file_output}")
+                # We'll continue anyway but with a warning
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to validate image file: {str(e)}")
+            return False
+
+    async def _debug_loop_device(self, loop_device: str) -> None:
+        """
+        Get detailed information about a loop device for debugging.
+        
+        Args:
+            loop_device: Path to the loop device
+        """
+        try:
+            # Get loop device info
+            losetup_result = await asyncio.create_subprocess_exec(
+                'losetup', '-a',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await losetup_result.communicate()
+            
+            self.logger.info(f"Loop device status:\n{stdout.decode()}")
+            if stderr:
+                self.logger.warning(f"Loop device stderr: {stderr.decode()}")
+            
+            # Try to print partition table with sfdisk
+            sfdisk_result = await asyncio.create_subprocess_exec(
+                'sfdisk', '-l', loop_device,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            sfdisk_stdout, sfdisk_stderr = await sfdisk_result.communicate()
+            
+            if sfdisk_stdout:
+                self.logger.info(f"Partition table (sfdisk):\n{sfdisk_stdout.decode()}")
+            
+            if sfdisk_stderr:
+                self.logger.info(f"sfdisk stderr: {sfdisk_stderr.decode()}")
+                
+                # If sfdisk fails, try fdisk as a fallback
+                fdisk_result = await asyncio.create_subprocess_exec(
+                    'fdisk', '-l', loop_device,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                fdisk_stdout, fdisk_stderr = await fdisk_result.communicate()
+                
+                if fdisk_stdout:
+                    self.logger.info(f"Partition table (fdisk):\n{fdisk_stdout.decode()}")
+                
+                if fdisk_stderr:
+                    self.logger.warning(f"fdisk stderr: {fdisk_stderr.decode()}")
+                    
+        except Exception as e:
+            self.logger.warning(f"Error during loop device debugging: {str(e)}")
+
+    async def _find_partitions(self, loop_device: str, image_path: Path) -> tuple:
+        """
+        Find partitions using multiple methods with better error handling.
+        
+        Args:
+            loop_device: Path to the loop device
+            image_path: Path to the original image file
+            
+        Returns:
+            tuple: (boot_partition, root_partition) or (None, None) on failure
+        """
+        try:
+            # Try to force kernel to scan the partition table
+            partprobe_result = await asyncio.create_subprocess_exec(
+                'partprobe', '-s', loop_device,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await partprobe_result.communicate()
+            
+            if stdout:
+                self.logger.info(f"Partprobe output: {stdout.decode()}")
+            
+            if stderr:
+                self.logger.warning(f"Partprobe stderr: {stderr.decode()}")
+                
+            # Alternative approach - try to recreate the loop device with partscan
+            if partprobe_result.returncode != 0:
+                self.logger.info("Trying to recreate loop device with --partscan")
+                detach_result = await asyncio.create_subprocess_exec(
+                    'losetup', '-d', loop_device,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await detach_result.communicate()
+                
+                recreate_result = await asyncio.create_subprocess_exec(
+                    'losetup', '--partscan', '-f', '--show', str(image_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await recreate_result.communicate()
+                
+                if recreate_result.returncode == 0:
+                    new_loop_device = stdout.decode().strip()
+                    if new_loop_device:
+                        self.logger.info(f"Recreated loop device: {new_loop_device}")
+                        loop_device = new_loop_device
+                        # Wait for partitions to be recognized
+                        await asyncio.sleep(3)
+                
+            # Try standard partition naming schemes
+            naming_schemes = [
+                # Standard p1/p2 naming
+                (f"{loop_device}p1", f"{loop_device}p2"),
+                # Alternative 1/2 naming
+                (f"{loop_device}1", f"{loop_device}2")
+            ]
+            
+            for boot_part, root_part in naming_schemes:
+                self.logger.info(f"Checking for partitions: {boot_part}, {root_part}")
+                if Path(boot_part).exists() and Path(root_part).exists():
+                    self.logger.info(f"Found partitions: {boot_part}, {root_part}")
+                    return boot_part, root_part
+            
+            # If standard approach fails, try more aggressive methods
+            self.logger.info("No partitions found with standard naming, trying advanced methods")
+            
+            # Method 1: Try using kpartx
+            self.logger.info("Trying kpartx to create partition mappings")
+            kpartx_result = await asyncio.create_subprocess_exec(
+                'kpartx', '-avs', loop_device,  # Added -s for sync mode
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            kpartx_stdout, kpartx_stderr = await kpartx_result.communicate()
+            
+            if kpartx_stdout:
+                self.logger.info(f"kpartx stdout: {kpartx_stdout.decode()}")
+            
+            if kpartx_stderr:
+                self.logger.info(f"kpartx stderr: {kpartx_stderr.decode()}")
+                
+                # If kpartx reports read errors, the image file might be corrupt
+                if "read error" in kpartx_stderr.decode():
+                    self.logger.error("Image file appears to be corrupt or incomplete. Try redownloading.")
+                    return None, None
+            
+            # Wait for device mapper to create nodes
+            await asyncio.sleep(3)
+            
+            # Check device mapper nodes
+            loop_basename = os.path.basename(loop_device)
+            mapper_candidates = [
+                (f"/dev/mapper/{loop_basename}p1", f"/dev/mapper/{loop_basename}p2"),
+                (f"/dev/mapper/loop{loop_basename.replace('loop', '')}p1", 
+                 f"/dev/mapper/loop{loop_basename.replace('loop', '')}p2")
+            ]
+            
+            for boot_part, root_part in mapper_candidates:
+                self.logger.info(f"Checking mapper devices: {boot_part}, {root_part}")
+                if Path(boot_part).exists() and Path(root_part).exists():
+                    self.logger.info(f"Found mapper devices: {boot_part}, {root_part}")
+                    return boot_part, root_part
+            
+            # Method 2: Last resort - try using a different approach like loop-control
+            # List available devices for debugging
+            self._debug_list_devices()
+            
+            # Failed to find partitions
+            self.logger.error("Failed to identify partitions in the image")
+            return None, None
+            
+        except Exception as e:
+            self.logger.error(f"Error finding partitions: {str(e)}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
+            return None, None
+
+    async def _force_detach_existing_loops(self, image_path: Path) -> None:
+        """Forcibly detach any existing loop devices for this image"""
+        try:
+            # Find if the image is already attached to a loop device
+            result = await asyncio.create_subprocess_exec(
+                'losetup', '-j', str(image_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await result.communicate()
+            
+            if stdout:
+                attached_loops = stdout.decode().strip().split('\n')
+                for line in attached_loops:
+                    if not line:
+                        continue
+                        
+                    # Extract loop device path
+                    loop_dev = line.split(':')[0]
+                    self.logger.info(f"Detaching existing loop device: {loop_dev}")
+                    
+                    # Detach the loop device
+                    await asyncio.create_subprocess_exec(
+                        'losetup', '-d', loop_dev,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+        except Exception as e:
+            self.logger.warning(f"Error detaching existing loop devices: {str(e)}")
+
+    async def _verify_partitions(self, loop_device: str) -> None:
+        """Verify the partition table of the image"""
+        try:
+            # Use fdisk to list partitions
+            fdisk_result = await asyncio.create_subprocess_exec(
+                'fdisk', '-l', loop_device,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await fdisk_result.communicate()
+            
+            self.logger.info(f"Partition table for {loop_device}:")
+            self.logger.info(stdout.decode())
+            
+            if stderr:
+                self.logger.warning(f"fdisk stderr: {stderr.decode()}")
+        except Exception as e:
+            self.logger.warning(f"Error verifying partitions: {str(e)}")
+
+    def _debug_list_devices(self) -> None:
+        """List devices for debugging purposes"""
+        try:
+            # List /dev
+            import glob
+            devices = glob.glob('/dev/loop*') + glob.glob('/dev/mapper/*')
+            self.logger.info(f"Available devices: {devices}")
+            
+            # List block devices
+            os.system('lsblk > /tmp/lsblk_debug.txt')
+            with open('/tmp/lsblk_debug.txt', 'r') as f:
+                self.logger.info(f"Block devices:\n{f.read()}")
+        except Exception as e:
+            self.logger.warning(f"Error listing devices: {str(e)}")
+
+    async def _cleanup_loop_device(self, loop_device: str) -> None:
+        """Clean up loop device resources"""
+        try:
+            # Try to detach the loop device
+            self.logger.info(f"Detaching loop device: {loop_device}")
+            
+            # First try to clean up kpartx mappings if they exist
+            kpartx_result = await asyncio.create_subprocess_exec(
+                'kpartx', '-d', loop_device,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await kpartx_result.communicate()
+            
+            # Now detach the loop device
+            detach_result = await asyncio.create_subprocess_exec(
+                'losetup', '-d', loop_device,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await detach_result.communicate()
+            
+            if detach_result.returncode != 0:
+                self.logger.warning(f"Failed to detach loop device: {stderr.decode()}")
+        except Exception as e:
+            self.logger.warning(f"Error cleaning up loop device: {str(e)}")
+
+    async def _mount_image_partitions(self) -> bool:
+        """
+        Mount the image partitions.
         
         Returns:
-            Tuple[Path, Path]: Paths to the boot and root mount points
+            bool: True if successful, False otherwise
         """
-        self.logger.info(f"Mounting image partitions for: {image_path}")
-        
-        # Create mount points in work directory
-        work_dir = Path(os.path.dirname(image_path)).parent
-        boot_mount = work_dir / "boot"
-        root_mount = work_dir / "rootfs"
-        
-        # Create directories if they don't exist
-        boot_mount.mkdir(exist_ok=True)
-        root_mount.mkdir(exist_ok=True)
-        
-        # Set up loop device for the image
-        loop_process = await asyncio.create_subprocess_exec(
-            'losetup', '--find', '--show', '--partscan', str(image_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await loop_process.communicate()
-        if loop_process.returncode != 0:
-            raise RuntimeError(f"Failed to set up loop device: {stderr.decode()}")
-        
-        loop_device = stdout.decode().strip()
-        self.state["loop_device"] = loop_device
-        
-        # Mount boot partition (typically partition 1)
-        boot_process = await asyncio.create_subprocess_exec(
-            'mount', f"{loop_device}p1", str(boot_mount),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await boot_process.communicate()
-        if boot_process.returncode != 0:
-            # Clean up loop device
-            await asyncio.create_subprocess_exec('losetup', '--detach', loop_device)
-            raise RuntimeError(f"Failed to mount boot partition: {stderr.decode()}")
-        
-        # Mount root partition (typically partition 2)
-        root_process = await asyncio.create_subprocess_exec(
-            'mount', f"{loop_device}p2", str(root_mount),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await root_process.communicate()
-        if root_process.returncode != 0:
-            # Clean up boot mount and loop device
-            await asyncio.create_subprocess_exec('umount', str(boot_mount))
-            await asyncio.create_subprocess_exec('losetup', '--detach', loop_device)
-            raise RuntimeError(f"Failed to mount root partition: {stderr.decode()}")
-        
-        self.logger.info(f"Mounted boot partition at: {boot_mount}")
-        self.logger.info(f"Mounted root partition at: {root_mount}")
-        
-        return boot_mount, root_mount
+        try:
+            # Check if we're using cached unpacked image
+            if "cached_unpacked_path" in self.state:
+                self.boot_mount = self.state["boot_mount"]
+                self.root_mount = self.state["root_mount"]
+                self.logger.info(f"Using cached mounts: boot={self.boot_mount}, root={self.root_mount}")
+                return True
+            
+            # Create mount points
+            self.boot_mount = Path("/tmp/w4b_mnt_boot")
+            self.root_mount = Path("/tmp/w4b_mnt_root")
+            
+            self.boot_mount.mkdir(parents=True, exist_ok=True)
+            self.root_mount.mkdir(parents=True, exist_ok=True)
+            
+            # Mount boot partition
+            boot_result = await asyncio.create_subprocess_exec(
+                'mount', self.boot_partition, str(self.boot_mount),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            boot_stdout, boot_stderr = await boot_result.communicate()
+            
+            if boot_result.returncode != 0:
+                self.logger.error(f"Failed to mount boot partition: {boot_stderr.decode().strip()}")
+                return False
+            
+            # Mount root partition 
+            root_result = await asyncio.create_subprocess_exec(
+                'mount', self.root_partition, str(self.root_mount),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            root_stdout, root_stderr = await root_result.communicate()
+            
+            if root_result.returncode != 0:
+                self.logger.error(f"Failed to mount root partition: {root_stderr.decode().strip()}")
+                # Unmount boot if we failed to mount root
+                await asyncio.create_subprocess_exec('umount', str(self.boot_mount))
+                return False
+            
+            # Store mount points in state
+            self.state["boot_mount"] = self.boot_mount
+            self.state["root_mount"] = self.root_mount
+            
+            self.logger.info(f"Mounted boot partition at: {self.boot_mount}")
+            self.logger.info(f"Mounted root partition at: {self.root_mount}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error mounting partitions: {str(e)}")
+            return False
     
-    async def _unmount_image(self, boot_mount: Path, root_mount: Path) -> None:
-        """Unmount image partitions and clean up loop device."""
-        self.logger.info("Unmounting image partitions")
-        
-        # Unmount root partition
-        await asyncio.create_subprocess_exec('umount', str(root_mount))
-        
-        # Unmount boot partition
-        await asyncio.create_subprocess_exec('umount', str(boot_mount))
-        
-        # Detach loop device if it exists in state
-        if "loop_device" in self.state:
-            await asyncio.create_subprocess_exec('losetup', '--detach', self.state["loop_device"])
+    async def _cleanup_mounts(self) -> None:
+        """Clean up mounts and loop device."""
+        try:
+            if hasattr(self, 'boot_mount') and self.boot_mount.exists():
+                self.logger.info(f"Unmounting boot partition: {self.boot_mount}")
+                await asyncio.create_subprocess_exec('umount', str(self.boot_mount))
+                
+            if hasattr(self, 'root_mount') and self.root_mount.exists():
+                self.logger.info(f"Unmounting root partition: {self.root_mount}")
+                await asyncio.create_subprocess_exec('umount', str(self.root_mount))
+                
+            if hasattr(self, 'loop_device') and self.loop_device:
+                self.logger.info(f"Detaching loop device: {self.loop_device}")
+                await asyncio.create_subprocess_exec('losetup', '-d', self.loop_device)
+        except Exception as e:
+            self.logger.error(f"Error during cleanup: {str(e)}")
     
     async def _configure_system(self, boot_mount: Path, root_mount: Path) -> None:
         """Configure system settings on the mounted image."""

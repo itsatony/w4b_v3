@@ -21,56 +21,32 @@ class SoftwareInstallStage(BuildStage):
         try:
             self.logger.info("Starting stage: SoftwareInstallStage")
             
-            # Ensure mount points exist in state
-            if "root_mount" not in self.state:
-                raise KeyError("Root mount point not found in state")
-            
+            # Ensure we have access to mounted filesystem
+            if "root_mount" not in self.state or "boot_mount" not in self.state:
+                self.logger.error("Root or boot mount points not found in state")
+                return False
+                
             root_mount = self.state["root_mount"]
             
-            # Update package list with current versions
-            packages = [
-                "postgresql-14",    
-                "postgresql-client-14",
-                "timescaledb-2-postgresql-14",
-                "wireguard",
-                "python3.10",
-                "python3-pip",
-                "python3-psycopg2",
-                "python3-yaml",
-                "python3-prometheus-client",
-                "ufw",
-                "fail2ban",
-                "ntp"
-            ]
-            
-            # Override packages in config with our updated list
-            self.state["config"]["software"]["packages"] = packages
+            # Setup for chroot environment
+            if not await self._setup_chroot(root_mount):
+                self.logger.error("Failed to set up chroot environment")
+                return False
             
             # Configure APT sources
             self.logger.info("Configuring APT sources")
             if not await self._configure_apt_sources(root_mount):
+                self.logger.warning("APT source configuration failed, but continuing")
+            
+            # Install required packages
+            self.logger.info(f"Installing {len(self.packages)} system packages")
+            if not await self._install_packages(root_mount):
+                self.logger.error("Package installation failed")
                 return False
             
-            # Install required system packages
-            packages = self.state["config"].get("software", {}).get("packages", [])
-            if packages:
-                self.logger.info(f"Installing {len(packages)} system packages")
-                if not await self._install_packages(root_mount, packages):
-                    self.logger.warning("Package installation failed, but continuing")
+            # Clean up chroot environment
+            await self._cleanup_chroot(root_mount)
             
-            # Install Python packages if needed
-            python_packages = self.state["config"].get("software", {}).get("python_packages", [])
-            if python_packages:
-                self.logger.info(f"Installing {len(python_packages)} Python packages")
-                if not await self._install_python_packages(root_mount, python_packages):
-                    self.logger.warning("Python package installation failed, but continuing")
-            
-            # Copy additional files to the image
-            self.logger.info("Copying additional files to the image")
-            await self._copy_additional_files(root_mount)
-            
-            # We'll mark as successful even if some package installations fail,
-            # as the W4BSoftwareStage will install essential files directly
             return True
             
         except Exception as e:
@@ -79,173 +55,224 @@ class SoftwareInstallStage(BuildStage):
             self.logger.debug(traceback.format_exc())
             return False
     
-    async def _configure_apt_sources(self, root_mount: Path) -> bool:
-        """Configure APT sources in the image."""
-        try:
-            # Create file with 'nameserver 8.8.8.8' for DNS resolution during build
-            resolv_conf = root_mount / "etc/resolv.conf"
-            with open(resolv_conf, "w") as f:
-                f.write("nameserver 8.8.8.8\n")
-                f.write("nameserver 1.1.1.1\n")
-            
-            # Set up for cross-architecture package installation
-            # This is critical for running ARM binaries on x86 host
-            qemu_user_path = Path("/usr/bin/qemu-arm-static")
-            if qemu_user_path.exists():
-                target_path = root_mount / "usr/bin/qemu-arm-static"
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(qemu_user_path, target_path)
-                self.logger.info("Copied qemu-arm-static for cross-architecture support")
-            else:
-                self.logger.warning("qemu-arm-static not found, package installation may fail")
-                # We'll create an apt.conf to avoid arch issues
-                apt_conf_path = root_mount / "etc/apt/apt.conf.d/90nocheckvalid"
-                with open(apt_conf_path, "w") as f:
-                    f.write('APT::Get::AllowUnauthenticated "true";\n')
-                    f.write('Acquire::Check-Valid-Until "false";\n')
-                    f.write('Acquire::ForceIPv4 "true";\n')
-                
-            # Skip running apt-get update due to cross-arch issues
-            self.logger.info("Skipping apt-get update due to potential cross-architecture issues")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to configure APT sources: {str(e)}")
-            return False
-    
-    async def _install_packages(self, root_mount: Path, packages: List[str]) -> bool:
+    async def _setup_chroot(self, root_mount: Path) -> bool:
         """
-        Install system packages in the image using a direct method 
-        rather than chroot which would fail due to arch differences.
+        Set up chroot environment for ARM architecture.
+        
+        Args:
+            root_mount: Path to the mounted root filesystem
+            
+        Returns:
+            bool: True if successful, False otherwise
         """
-        # In this modified version, we'll just create a script to run on first boot
         try:
-            # Create a script that will install packages on first boot
-            install_script = root_mount / "usr/local/bin/install_packages.sh"
-            install_script.parent.mkdir(parents=True, exist_ok=True)
+            # Find qemu-arm-static on the host system
+            qemu_paths = [
+                "/usr/bin/qemu-arm-static",
+                "/usr/local/bin/qemu-arm-static"
+            ]
             
-            with open(install_script, "w") as f:
-                f.write("#!/bin/bash\n\n")
-                f.write("# Script generated by W4B image generator\n")
-                f.write("echo 'Installing required packages...'\n")
-                f.write("apt-get update\n")
-                f.write(f"apt-get install -y {' '.join(packages)}\n")
-                f.write("echo 'Package installation completed'\n")
-            
-            install_script.chmod(0o755)
-            
-            # Add to rc.local to run on first boot
-            rc_local = root_mount / "etc/rc.local"
-            if rc_local.exists():
-                with open(rc_local, "r") as f:
-                    content = f.read()
-                
-                # Insert our command before the exit 0
-                if "exit 0" in content:
-                    content = content.replace(
-                        "exit 0", 
-                        "/usr/local/bin/install_packages.sh\nexit 0"
-                    )
-                else:
-                    content += "\n/usr/local/bin/install_packages.sh\n"
-                
-                with open(rc_local, "w") as f:
-                    f.write(content)
-            else:
-                with open(rc_local, "w") as f:
-                    f.write("#!/bin/bash\n")
-                    f.write("/usr/local/bin/install_packages.sh\n")
-                    f.write("exit 0\n")
-                rc_local.chmod(0o755)
-                
-            self.logger.info("Created package installation script for first boot")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to set up package installation: {str(e)}")
-            return False
-    
-    async def _install_python_packages(self, root_mount: Path, packages: List[str]) -> bool:
-        """Install Python packages in the image."""
-        try:
-            # Create a script that will install Python packages on first boot
-            install_script = root_mount / "usr/local/bin/install_python_packages.sh"
-            install_script.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(install_script, "w") as f:
-                f.write("#!/bin/bash\n\n")
-                f.write("# Script generated by W4B image generator\n")
-                f.write("echo 'Installing required Python packages...'\n")
-                f.write("pip3 install --upgrade pip\n")
-                f.write(f"pip3 install {' '.join(packages)}\n")
-                f.write("echo 'Python package installation completed'\n")
-            
-            install_script.chmod(0o755)
-            
-            # Update rc.local to run after packages are installed
-            rc_local = root_mount / "etc/rc.local"
-            if rc_local.exists():
-                with open(rc_local, "r") as f:
-                    content = f.read()
-                
-                # Insert our command before the exit 0 but after package install
-                if "/usr/local/bin/install_packages.sh" in content:
-                    content = content.replace(
-                        "/usr/local/bin/install_packages.sh", 
-                        "/usr/local/bin/install_packages.sh\n/usr/local/bin/install_python_packages.sh"
-                    )
-                elif "exit 0" in content:
-                    content = content.replace(
-                        "exit 0", 
-                        "/usr/local/bin/install_python_packages.sh\nexit 0"
-                    )
-                else:
-                    content += "\n/usr/local/bin/install_python_packages.sh\n"
-                
-                with open(rc_local, "w") as f:
-                    f.write(content)
-            
-            self.logger.info("Created Python package installation script for first boot")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to set up Python package installation: {str(e)}")
-            return False
-    
-    async def _copy_additional_files(self, root_mount: Path) -> bool:
-        """Copy additional files to the image."""
-        try:
-            # Check if there are additional files to copy
-            additional_files = self.state["config"].get("software", {}).get("additional_files", [])
-            
-            for file_info in additional_files:
-                src = file_info.get("src")
-                dst = file_info.get("dst")
-                
-                if not src or not dst:
-                    continue
-                
-                src_path = Path(src)
-                dst_path = root_mount / dst.lstrip("/")
-                
-                # Make sure parent directory exists
-                dst_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Copy the file
-                if src_path.exists():
-                    if src_path.is_dir():
-                        # Copy directory recursively
-                        shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
-                    else:
-                        # Copy single file
-                        shutil.copy2(src_path, dst_path)
+            qemu_host_path = None
+            for path in qemu_paths:
+                if Path(path).exists():
+                    qemu_host_path = path
+                    break
                     
-                    # Set permissions if specified
-                    if "mode" in file_info:
-                        dst_path.chmod(int(file_info["mode"], 8))
+            if not qemu_host_path:
+                self.logger.error("qemu-arm-static not found on host system")
+                self.logger.info("Installing qemu-user-static on host system")
+                
+                # Try to install qemu-user-static if it's not found
+                try:
+                    install_result = await asyncio.create_subprocess_exec(
+                        'sudo', 'apt', 'update',
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    await install_result.communicate()
+                    
+                    install_result = await asyncio.create_subprocess_exec(
+                        'sudo', 'apt', 'install', '-y', 'qemu-user-static',
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    await install_result.communicate()
+                    
+                    if install_result.returncode != 0:
+                        self.logger.error("Failed to install qemu-user-static")
+                        return False
+                        
+                    # Check if it's now available
+                    for path in qemu_paths:
+                        if Path(path).exists():
+                            qemu_host_path = path
+                            break
+                            
+                    if not qemu_host_path:
+                        self.logger.error("qemu-arm-static still not found after installation")
+                        return False
+                except Exception as e:
+                    self.logger.error(f"Failed to install qemu-user-static: {str(e)}")
+                    return False
+            
+            # Create target directory if it doesn't exist
+            target_dir = root_mount / "usr" / "bin"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy qemu-arm-static to target
+            qemu_target_path = target_dir / "qemu-arm-static"
+            self.logger.info(f"Copying qemu-arm-static from {qemu_host_path} to {qemu_target_path}")
+            import shutil
+            shutil.copy2(qemu_host_path, qemu_target_path)
+            
+            # Make it executable
+            os.chmod(qemu_target_path, 0o755)
+            
+            # Set up essential mounts for chroot
+            mounts = [
+                ("proc", root_mount / "proc", "proc"),
+                ("sys", root_mount / "sys", "sysfs"),
+                ("dev", root_mount / "dev", "devtmpfs"),
+                ("dev/pts", root_mount / "dev/pts", "devpts")
+            ]
+            
+            for name, mount_point, fs_type in mounts:
+                # Create mount point if it doesn't exist
+                if not mount_point.exists():
+                    mount_point.mkdir(parents=True, exist_ok=True)
+                    
+                # Mount filesystem
+                self.logger.debug(f"Mounting {name} at {mount_point}")
+                mount_result = await asyncio.create_subprocess_exec(
+                    'mount', '-t', fs_type, name, str(mount_point),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await mount_result.communicate()
+                
+                if mount_result.returncode != 0:
+                    self.logger.warning(f"Failed to mount {name}: {stderr.decode()}")
+            
+            # Copy resolv.conf for network access
+            shutil.copy2("/etc/resolv.conf", root_mount / "etc" / "resolv.conf")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error setting up chroot environment: {str(e)}")
+            return False
+    
+    async def _cleanup_chroot(self, root_mount: Path) -> None:
+        """
+        Clean up chroot environment.
+        
+        Args:
+            root_mount: Path to the mounted root filesystem
+        """
+        try:
+            # Unmount filesystems in reverse order
+            mounts = [
+                (root_mount / "dev/pts"),
+                (root_mount / "dev"),
+                (root_mount / "sys"),
+                (root_mount / "proc")
+            ]
+            
+            for mount_point in mounts:
+                self.logger.debug(f"Unmounting {mount_point}")
+                unmount_result = await asyncio.create_subprocess_exec(
+                    'umount', str(mount_point),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await unmount_result.communicate()
+                
+        except Exception as e:
+            self.logger.warning(f"Error cleaning up chroot environment: {str(e)}")
+    
+    async def _run_in_chroot(self, root_mount: Path, command: str) -> bool:
+        """
+        Run a command in the chroot environment.
+        
+        Args:
+            root_mount: Path to the mounted root filesystem
+            command: Command to run
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Use a shell script to ensure proper environment
+            script_content = f"""#!/bin/bash
+set -e
+export DEBIAN_FRONTEND=noninteractive
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+{command}
+"""
+            # Create script file in target filesystem
+            script_path = root_mount / "tmp" / "install_script.sh"
+            with open(script_path, "w") as f:
+                f.write(script_content)
+                
+            # Make script executable
+            os.chmod(script_path, 0o755)
+            
+            # Run the script in chroot
+            self.logger.debug(f"Running in chroot: {command}")
+            chroot_result = await asyncio.create_subprocess_exec(
+                'chroot', str(root_mount), '/tmp/install_script.sh',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await chroot_result.communicate()
+            
+            # Log output
+            if stdout:
+                self.logger.debug(f"Command output: {stdout.decode()}")
+            if stderr:
+                self.logger.debug(f"Command error: {stderr.decode()}")
+            
+            return chroot_result.returncode == 0
+            
+        except Exception as e:
+            self.logger.error(f"Error running command in chroot: {str(e)}")
+            return False
+    
+    async def _configure_apt_sources(self, root_mount: Path) -> bool:
+        """Configure APT sources"""
+        try:
+            # Write APT sources configuration
+            sources_list = root_mount / "etc/apt/sources.list"
+            with open(sources_list, "w") as f:
+                f.write("""deb http://deb.debian.org/debian bookworm main contrib non-free
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free
+""")
+            
+            # Update APT
+            if not await self._run_in_chroot(root_mount, "apt update"):
+                self.logger.warning("APT update failed")
+                return False
                 
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to copy additional files: {str(e)}")
+            self.logger.warning(f"APT source configuration failed: {str(e)}")
+            return False
+    
+    async def _install_packages(self, root_mount: Path) -> bool:
+        """Install required packages"""
+        try:
+            # Install packages
+            packages_str = " ".join(self.packages)
+            install_cmd = f"apt install -y {packages_str}"
+            
+            if not await self._run_in_chroot(root_mount, install_cmd):
+                self.logger.error("Package installation failed")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Package installation failed: {str(e)}")
             return False

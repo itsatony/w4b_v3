@@ -27,6 +27,7 @@ from core.image import ImageBuilder
 from core.pipeline import BuildPipeline
 from core.validation import ImageValidator
 from utils.logging_setup import configure_logging
+from utils.dependencies import check_dependencies
 
 
 class ImageGenerator:
@@ -371,6 +372,15 @@ class ImageGenerator:
         try:
             self.parse_arguments()
             self.setup_environment()
+            
+            # Check system dependencies
+            dependencies_ok, missing = check_dependencies()
+            if not dependencies_ok:
+                self.logger.error(f"Missing required system dependencies: {', '.join(missing)}")
+                self.logger.error("Please install these dependencies before continuing.")
+                self.logger.error(f"Run: sudo apt-get update && sudo apt-get install -y {' '.join(missing)}")
+                return 1
+            
             await self.load_configuration()
             
             success = await self.run_pipeline()

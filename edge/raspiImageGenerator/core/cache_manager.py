@@ -11,6 +11,7 @@ import shutil
 import hashlib
 import logging
 import time
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 
@@ -80,16 +81,17 @@ class CacheManager:
     
     def get_unpacked_path(self, image_info: Dict[str, Any]) -> Path:
         """
-        Get the path where the unpacked image should be stored.
+        Get the path to the unpacked (extracted) image.
         
         Args:
             image_info: Dictionary containing image information
             
         Returns:
-            Path: Path for the unpacked image
+            Path: Path to the unpacked image
         """
-        cache_key = self.get_cache_key(image_info)
-        return self.unpacked_dir / cache_key
+        # Unpacked image path does not have the compression extension
+        download_path = self.get_download_path(image_info)
+        return download_path.with_suffix("")  # Remove file extension
     
     def is_cached(self, image_info: Dict[str, Any]) -> Tuple[bool, bool]:
         """
@@ -104,8 +106,33 @@ class CacheManager:
         download_path = self.get_download_path(image_info)
         unpacked_path = self.get_unpacked_path(image_info)
         
+        # Check if download file exists and is valid
         download_cached = download_path.exists() and self._validate_download(download_path, image_info)
+        
+        # Check if unpacked file exists and is valid
         unpacked_cached = unpacked_path.exists() and self._validate_unpacked(unpacked_path)
+        
+        # Log caching status
+        if download_cached:
+            self.logger.info(f"Download cached: {download_path}")
+        if unpacked_cached:
+            self.logger.info(f"Unpacked cached: {unpacked_path}")
+        
+        # If the downloaded file exists but is invalid, clean it up
+        if download_path.exists() and not download_cached:
+            self.logger.warning(f"Found corrupt cached file: {download_path}, removing it")
+            try:
+                download_path.unlink()
+            except Exception as e:
+                self.logger.error(f"Failed to remove corrupt cache file: {str(e)}")
+        
+        # If the unpacked directory exists but is invalid, clean it up
+        if unpacked_path.exists() and not unpacked_cached:
+            self.logger.warning(f"Found corrupt cached unpacked file: {unpacked_path}, removing it")
+            try:
+                unpacked_path.unlink()
+            except Exception as e:
+                self.logger.error(f"Failed to remove corrupt cache file: {str(e)}")
         
         return download_cached, unpacked_cached
     
@@ -120,9 +147,29 @@ class CacheManager:
         Returns:
             bool: True if valid, False otherwise
         """
-        if not path.exists() or path.stat().st_size == 0:
+        if not path.exists():
             return False
             
+        file_size = path.stat().st_size
+        if file_size == 0:
+            self.logger.warning(f"Cached file is empty: {path}")
+            return False
+            
+        self.logger.info(f"Cached file size: {file_size / (1024*1024):.2f} MB")
+        
+        # Validate file signature for compressed formats
+        if path.suffix.lower() == '.xz':
+            try:
+                with open(path, 'rb') as f:
+                    header = f.read(6)
+                    
+                if len(header) < 6 or header[0] != 0xFD or header[1:6] != b'7zXZ\x00':
+                    self.logger.warning(f"Cached XZ file has invalid header: {path}")
+                    return False
+            except Exception as e:
+                self.logger.warning(f"Failed to validate XZ header: {str(e)}")
+                return False
+        
         # If checksum is provided, verify it
         checksum = image_info.get("checksum")
         checksum_type = image_info.get("checksum_type", "sha256")
@@ -137,22 +184,39 @@ class CacheManager:
     
     def _validate_unpacked(self, path: Path) -> bool:
         """
-        Validate an unpacked image directory.
+        Validate an unpacked image file.
         
         Args:
-            path: Path to the unpacked directory
+            path: Path to the unpacked file
             
         Returns:
             bool: True if valid, False otherwise
         """
-        # Check for essential directories
         if not path.exists():
             return False
             
-        essential_dirs = ["boot", "rootfs"]
-        for dir_name in essential_dirs:
-            if not (path / dir_name).exists() or not (path / dir_name).is_dir():
-                return False
+        file_size = path.stat().st_size
+        if file_size == 0:
+            self.logger.warning(f"Unpacked file is empty: {path}")
+            return False
+            
+        self.logger.info(f"Unpacked file size: {file_size / (1024*1024):.2f} MB")
+        
+        # Basic validation for image files - check for boot sector signature
+        try:
+            with open(path, 'rb') as f:
+                boot_sector = f.read(512)
+                if len(boot_sector) >= 512:
+                    # Look for the boot sector signature (0x55, 0xAA at offset 510-511)
+                    if boot_sector[510:512] != b'\x55\xAA':
+                        self.logger.warning(f"Unpacked file doesn't have a valid boot sector signature: {path}")
+                        return False
+                else:
+                    self.logger.warning(f"Unpacked file too small for boot sector: {path}")
+                    return False
+        except Exception as e:
+            self.logger.warning(f"Failed to validate boot sector: {str(e)}")
+            return False
         
         return True
     
@@ -313,3 +377,97 @@ class CacheManager:
         import json
         with open(metadata_path, "r") as f:
             return json.load(f)
+    
+    def unpack_image(self, image_info: Dict[str, Any], image_path: Path) -> Optional[Path]:
+        """
+        Unpack an image to a directory structure for easier manipulation.
+        
+        Args:
+            image_info: Dictionary containing image information
+            image_path: Path to the downloaded image
+            
+        Returns:
+            Optional[Path]: Path to the unpacked directory if successful, None otherwise
+        """
+        try:
+            cache_key = self.get_cache_key(image_info)
+            unpacked_path = self.get_unpacked_path(image_info)
+            
+            # Check if already unpacked
+            if self._validate_unpacked(unpacked_path):
+                self.logger.info(f"Using cached unpacked image: {unpacked_path}")
+                return unpacked_path
+                
+            # Create directories
+            unpacked_path.mkdir(parents=True, exist_ok=True)
+            boot_dir = unpacked_path / "boot"
+            rootfs_dir = unpacked_path / "rootfs"
+            boot_dir.mkdir(exist_ok=True)
+            rootfs_dir.mkdir(exist_ok=True)
+            
+            # Set up loop device
+            self.logger.info(f"Setting up loop device for: {image_path}")
+            loop_result = subprocess.run(
+                ['losetup', '-f', '--show', str(image_path)],
+                capture_output=True, text=True, check=True
+            )
+            loop_device = loop_result.stdout.strip()
+            
+            try:
+                # Ensure partitions are detected
+                subprocess.run(['partprobe', loop_device], check=True)
+                
+                # Wait a moment for partitions to be available
+                time.sleep(1)
+                
+                # Determine partition devices
+                boot_part = f"{loop_device}p1"
+                root_part = f"{loop_device}p2"
+                
+                # Check if partitions exist with this naming scheme
+                if not Path(boot_part).exists() or not Path(root_part).exists():
+                    # Try alternate naming (without 'p')
+                    boot_part = f"{loop_device}1"
+                    root_part = f"{loop_device}2"
+                    
+                    # If still not found, try kpartx
+                    if not Path(boot_part).exists() or not Path(root_part).exists():
+                        self.logger.info("Using kpartx to map partitions")
+                        subprocess.run(['kpartx', '-av', loop_device], check=True)
+                        loop_name = os.path.basename(loop_device)
+                        boot_part = f"/dev/mapper/{loop_name}p1"
+                        root_part = f"/dev/mapper/{loop_name}p2"
+                
+                # Mount and copy boot partition
+                self.logger.info(f"Copying boot partition from {boot_part} to {boot_dir}")
+                temp_mount = Path("/tmp/w4b_temp_mount")
+                temp_mount.mkdir(exist_ok=True)
+                
+                try:
+                    subprocess.run(['mount', boot_part, str(temp_mount)], check=True)
+                    subprocess.run(['cp', '-a', f"{temp_mount}/.", str(boot_dir)], check=True)
+                finally:
+                    subprocess.run(['umount', str(temp_mount)], check=False)
+                
+                # Mount and copy root partition
+                self.logger.info(f"Copying root partition from {root_part} to {rootfs_dir}")
+                try:
+                    subprocess.run(['mount', root_part, str(temp_mount)], check=True)
+                    subprocess.run(['cp', '-a', f"{temp_mount}/.", str(rootfs_dir)], check=True)
+                finally:
+                    subprocess.run(['umount', str(temp_mount)], check=False)
+                    
+                # Clean up
+                if temp_mount.exists():
+                    temp_mount.rmdir()
+                    
+            finally:
+                # Detach loop device
+                subprocess.run(['losetup', '-d', loop_device], check=False)
+            
+            self.logger.info(f"Successfully unpacked image to: {unpacked_path}")
+            return unpacked_path
+            
+        except Exception as e:
+            self.logger.error(f"Failed to unpack image: {str(e)}")
+            return None
