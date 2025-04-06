@@ -1,8 +1,20 @@
-# Sensor Manager System Plan
+# Sensor Manager System Plan - MVP Approach
 
 ## 1. Overview & Architecture
 
 The Sensor Manager system is a key component of the w4b (we4bee) v3 hive monitoring platform. It provides an extensible, configurable framework for collecting, processing, and storing sensor data from beehives. The system follows a modular, plugin-based architecture to support diverse sensor types while maintaining a consistent, robust data collection pipeline.
+
+### MVP Strategy
+
+For the Minimum Viable Product (MVP), we will:
+
+1. Implement the core framework with abstractions for all components
+2. Create working implementations only for the most critical components
+3. Use dummy/mock implementations for non-critical components
+4. Focus on a single sensor type (temperature) for complete implementation
+5. Design interfaces that support future expansion
+
+This approach allows us to build a complete end-to-end solution quickly while maintaining the architecture needed for full implementation later.
 
 ### Key Design Principles
 
@@ -71,19 +83,34 @@ graph TB
     PRESS --> BUFF
     SND --> BUFF
     IMG --> BUFF
+    
+    classDef mvp fill:#9f9,stroke:#333,stroke-width:2px
+    classDef future fill:#f99,stroke:#333,stroke-width:1px
+    
+    class CONF,DISC,COLL,BUFF,TEMP,LOCAL,LOGS mvp
+    class SYNC,HEALTH,PROM,ALERTS,WEIGHT,WIND,HUM,DUST,RAIN,PHOTO,PRESS,SND,IMG,REMOTE future
 ```
 
 ## 2. Sensor Framework Design
 
 The sensor framework provides a unified interface for interacting with different types of sensors while abstracting away the hardware-specific details.
 
+### MVP Implementation
+
+For the MVP, we will:
+- Implement the full SensorBase abstract interface
+- Create a complete implementation for temperature sensors
+- Provide dummy implementations for all other sensor types
+- Implement basic configuration loading and validation
+- Use local database storage with simplified schema
+
 ### Core Components
 
 1. **Sensor Base Class**: Abstract interface defining standard methods for all sensors
-2. **Sensor Type Implementations**: Concrete implementations for each sensor type
+2. **Sensor Type Implementations**: Concrete implementations for each sensor type (only temperature for MVP)
 3. **Sensor Registry**: Central repository of available sensor implementations
 4. **Sensor Factory**: Creates sensor instances based on configuration
-5. **Sensor Discovery**: Auto-detects available sensors on the system
+5. **Sensor Discovery**: Auto-detects available sensors on the system (simplified for MVP)
 
 ### Sensor Interface
 
@@ -120,73 +147,56 @@ class SensorBase:
 
 ## 3. Sensor Types Implementation
 
-We'll implement sensor drivers for all the sensor types identified in the existing system, plus additional sensors for modern hive monitoring needs.
+### MVP Focus: Temperature Sensors
+
+For the MVP, we will fully implement only temperature sensors, specifically:
+- 1-Wire temperature sensors (DS18B20)
+- Support for multiple temperature sensor instances
+- Complete calibration and validation
+
+### Implementation for Other Sensors
+
+For all other sensor types, we will:
+- Create stub implementations that return dummy data
+- Implement the full interface but with simplified functionality
+- Structure the code to make it easy to replace dummy implementations later
+- Ensure configuration parsing works for all sensor types
 
 ### Sensor Types from Legacy System
 
-| Sensor Type | Interface | Measurement | Implementation Notes |
-|-------------|-----------|-------------|---------------------|
-| WindSensor | I2C (0x4) | Wind speed | Read wind speed from I2C bus, calculate with diameter |
-| RainSensor | I2C (0x4) | Rainfall | Read rainfall data from I2C bus |
-| PhotoSensor | I2C (0x29) | Light levels | Configure integration time and gain |
-| HumiditySensor | I2C (0x40) | Humidity | Read humidity from I2C bus |
-| FineDustSensor | I2C (0x4) | PM2.5, PM10 | Read particulate matter measurements |
-| BalanceSensor | I2C (0x4) | Weight | Apply calibration offset and factor |
-| PressureSensor | I2C (0x76) | Pressure | Adjust for altitude |
-| TemperatureW1Sensor | 1-Wire | Temperature | Read from specific 1-Wire path |
-
-### New Sensor Types
-
-| Sensor Type | Interface | Measurement | Implementation Notes |
-|-------------|-----------|-------------|---------------------|
-| SoundAnalyzer | USB/GPIO | Audio | Record and analyze sounds |
-| CameraCapture | USB/CSI | Image | Capture and store images |
-| CO2Sensor | I2C | CO2 levels | Monitor carbon dioxide |
-| VOCSensor | I2C | VOC levels | Monitor volatile organic compounds |
-| OpenWeatherSensor | API | Weather data | Retrieve from online service |
-| MultiTempArray | 1-Wire | Multiple temperatures | Monitor temperature at different points |
-
-### Implementation Approach
-
-Each sensor type will be implemented as a Python module that inherits from the SensorBase class. The module will handle:
-
-1. **Hardware Communication**: Direct interaction with hardware via appropriate libraries
-2. **Data Processing**: Converting raw readings to standardized units
-3. **Calibration**: Applying calibration factors to raw readings
-4. **Validation**: Ensuring readings are within expected ranges
-5. **Error Handling**: Robust handling of hardware communication failures
+| Sensor Type | Interface | MVP Implementation |
+|-------------|-----------|-------------------|
+| TemperatureW1Sensor | 1-Wire | **Full implementation** |
+| WindSensor | I2C (0x4) | Dummy implementation returning random values |
+| RainSensor | I2C (0x4) | Dummy implementation returning random values |
+| PhotoSensor | I2C (0x29) | Dummy implementation returning random values |
+| HumiditySensor | I2C (0x40) | Dummy implementation returning random values |
+| FineDustSensor | I2C (0x4) | Dummy implementation returning random values |
+| BalanceSensor | I2C (0x4) | Dummy implementation returning random values |
+| PressureSensor | I2C (0x76) | Dummy implementation returning random values |
 
 ## 4. Data Collection Strategy
 
-The data collection strategy implements the data retention scheme requirements while optimizing for resource usage and network bandwidth.
+### MVP Approach
 
-### Collection Intervals
+For the MVP, we will implement:
+- Fixed collection intervals based on configuration (no adaptive collection)
+- Simple data buffering in memory
+- Direct storage to local database
+- Basic error handling and retries
 
-| Time Period | Collection Frequency | Storage Strategy |
-|-------------|----------------------|------------------|
-| Day (04:00-22:00) | Every 1 minute | Store every reading |
-| Night (22:00-04:00) | Every 10 minutes | Store every reading |
-| Special Events | Variable (as frequent as 20 sec) | Store every reading |
+Future versions will add:
+- Adaptive collection based on events and anomalies
+- Sophisticated buffering and batching
+- Bandwidth-aware synchronization
 
-### Adaptive Collection
-
-The system will implement adaptive collection based on:
-
-1. **Anomaly Detection**: Increase frequency when readings are outside normal ranges
-2. **Event Detection**: Increase frequency during rainfall, temperature spikes, etc.
-3. **User Requests**: Allow manual triggering of high-resolution mode
-4. **Resource Constraints**: Reduce frequency if system resources are constrained
-5. **Battery Conservation**: Adjust frequency based on battery level (for battery-powered deployments)
-
-### Collection Process
+### Collection Process (MVP)
 
 ```mermaid
 sequenceDiagram
     participant S as Sensor
     participant SM as SensorManager
-    participant B as Buffer
     participant DB as LocalDB
-    participant Hub as Central Hub
     
     SM->>S: initialize()
     S-->>SM: success/failure
@@ -195,189 +205,126 @@ sequenceDiagram
         SM->>S: read()
         S-->>SM: measurement data
         SM->>SM: validate data
-        SM->>B: buffer data
-        
-        alt Buffer Threshold Reached
-            B->>DB: flush to local storage
-        end
-        
-        alt Sync Interval Reached
-            DB->>Hub: sync data to central hub
-        end
+        SM->>DB: store data
     end
 ```
 
 ## 5. Data Storage & Retention
 
-The system will implement a multi-tiered storage strategy to balance between local storage constraints and data retention requirements.
+### MVP Storage Strategy
 
-### Local Storage (TimescaleDB)
+For the MVP, we will:
+- Implement local TimescaleDB storage only
+- Use a simplified schema focused on sensor readings
+- Implement basic retention policies
+- Skip synchronization with central hub (implement sync interface with dummy)
+- Store only scalar sensor values (no media files)
 
-- **Recent Data**: Full resolution data for the last 7 days
-- **Medium-term Data**: Downsampled data (20-minute averages) for 70 days
-- **Long-term Data**: Highly downsampled data (daily averages) for 13 months
-- **Automated Cleanup**: Retention policies to automatically remove old data
-- **Data Compression**: TimescaleDB native compression for efficient storage
+### Local Storage Schema (MVP)
 
-### Data Synchronization
+```sql
+CREATE TABLE sensor_readings (
+    time TIMESTAMPTZ NOT NULL,
+    hive_id TEXT NOT NULL,
+    sensor_id TEXT NOT NULL,
+    metric_name TEXT NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    unit TEXT NOT NULL,
+    status TEXT DEFAULT 'valid'
+);
 
-- **Regular Sync**: Periodic synchronization with central hub
-- **Adaptive Sync**: More frequent sync for critical data or anomalies
-- **Bandwidth-aware**: Throttle sync during limited connectivity
-- **Delta Sync**: Only sync new or changed data
-- **Resumable Sync**: Continue interrupted syncs from last position
+SELECT create_hypertable('sensor_readings', 'time');
+```
 
-### Media Storage
+### Future Extensions
 
-- **Images**: Store locally with metadata, sync based on importance
-- **Audio**: Pre-filter audio on-device, only store segments of interest
-- **File Naming Convention**: `{timestamp}_{hive_id}_{sensor_id}_{filetype}.{ext}`
-- **Directory Structure**: `{hive_id}/{sensor_id}/{filetype}/{files}`
+The design will support these future extensions:
+- Synchronization with central hub
+- Media file storage and management
+- Advanced data retention and compression
+- Anomaly marking and special event tagging
 
 ## 6. Calibration & Validation
 
-Ensuring accurate, reliable sensor readings through calibration and validation.
+### MVP Implementation
 
-### Calibration Methods
+For the MVP, we will implement:
+- Linear calibration for temperature sensors (offset and scale)
+- Basic range validation (min/max values)
+- Simple error flagging for out-of-range values
 
-- **Linear Calibration**: Apply slope and offset (y = mx + b)
-- **Polynomial Calibration**: Higher-order calibration for complex sensors
-- **Multi-point Calibration**: Define calibration points for lookup/interpolation
-- **Temperature Compensation**: Adjust readings based on temperature
-- **Periodic Recalibration**: Schedule regular calibration checks
-
-### Validation Rules
-
-- **Range Validation**: Ensure readings are within physical bounds
-- **Rate-of-Change Validation**: Flag suspiciously rapid changes
-- **Cross-Sensor Validation**: Compare related sensors for consistency
-- **Statistical Validation**: Apply statistical methods to detect outliers
-- **Trend Analysis**: Ensure readings follow expected patterns
+Future versions will add:
+- Advanced calibration methods
+- Cross-sensor validation
+- Statistical outlier detection
+- Trend analysis
 
 ## 7. Error Handling & Resilience
 
-The system must be resilient to various failure modes and recover gracefully.
+### MVP Approach
 
-### Error Categories
+For the MVP, we will implement:
+- Basic error logging
+- Simple retry mechanism for failed readings
+- Status tracking for sensors
+- Graceful shutdown and cleanup
 
-- **Hardware Errors**: Sensor communication failures, hardware malfunctions
-- **Calibration Errors**: Readings outside calibrated ranges
-- **Validation Errors**: Readings that fail validation checks
-- **Storage Errors**: Database connection or storage failures
-- **Network Errors**: Connectivity or VPN issues
-- **System Errors**: Resource constraints, software errors
-
-### Resilience Strategies
-
-- **Graceful Degradation**: Continue operation with limited functionality
-- **Automatic Restarts**: Restart components after failures
-- **Exponential Backoff**: Gradually increase retry intervals
-- **Circuit Breaking**: Temporarily disable failing components
-- **Local Buffering**: Store data locally during outages
-- **Watchdog Timer**: Detect and recover from hangs or deadlocks
+Future versions will add:
+- Advanced error recovery strategies
+- Circuit breaking for failing components
+- Auto-recovery mechanisms
+- Comprehensive diagnostics
 
 ## 8. Monitoring & Diagnostics
 
-Comprehensive monitoring to ensure system health and performance.
+### MVP Implementation
 
-### Key Metrics
+For the MVP, we will implement:
+- Basic logging to files and console
+- Simple sensor status tracking
+- Minimal Prometheus metrics (sensor status and readings)
 
-- **Sensor Health**: Operational status of each sensor
-- **Collection Performance**: Success rate, timing, intervals
-- **Data Quality**: Validation failures, calibration status
-- **Storage Status**: Database size, growth rate, performance
-- **Sync Status**: Last successful sync, pending data volume
-- **System Resources**: CPU, memory, disk usage, temperature
-- **Network Status**: Connectivity, VPN status, bandwidth usage
-
-### Monitoring Tools
-
-- **Prometheus Metrics**: Expose metrics for central collection
-- **Structured Logging**: Consistent, searchable log format
-- **Health Endpoints**: HTTP endpoints for status checks
-- **Self-tests**: Periodic self-diagnostics
-- **Alerting**: Configure alerts for critical issues
+Future versions will add:
+- Comprehensive metrics collection
+- Alerting and notifications
+- Health endpoints and self-tests
+- Performance monitoring
 
 ## 9. Implementation Roadmap
 
-A phased approach to implementing the sensor manager system.
+### MVP Phase (Current Focus)
 
-### Phase 1: Core Framework
+1. Core Framework
+   - Sensor interface and base class
+   - Configuration loading
+   - Basic sensor factory
+   - Simple logging setup
 
-- Develop sensor base class and interface
-- Implement configuration loading and validation
-- Create sensor factory and registry
-- Set up basic logging and metrics
-- Develop unit testing framework
+2. Temperature Sensor Support
+   - 1-Wire temperature sensor driver
+   - Basic calibration support
+   - Reading and validation
 
-### Phase 2: Basic Sensor Support
+3. Local Storage
+   - TimescaleDB setup
+   - Basic schema
+   - Simple data storage operations
 
-- Implement temperature sensor drivers (1-Wire)
-- Implement humidity sensor drivers (I2C)
-- Implement weight sensor drivers (HX711)
-- Implement basic data collection pipeline
-- Set up local database storage
+4. Simple Monitoring
+   - Basic logging
+   - Simple Prometheus metrics
 
-### Phase 3: Advanced Sensors
+### Future Phases
 
-- Implement dust sensor drivers
-- Implement light sensor drivers
-- Implement pressure sensor drivers
-- Implement wind/rain sensor drivers
-- Implement sound and image capture
+Will be planned based on MVP learnings and prioritized as needed.
 
-### Phase 4: Data Management
+## 10. Future Enhancements (Post-MVP)
 
-- Implement data validation rules
-- Set up data retention policies
-- Develop synchronization mechanism
-- Implement adaptive collection intervals
-- Configure data compression
-
-### Phase 5: Monitoring & Resilience
-
-- Set up comprehensive metrics collection
-- Implement error handling and recovery
-- Develop system diagnostics
-- Configure alerting and notifications
-- Perform stress testing and optimization
-
-### Phase 6: Integration & Deployment
-
-- Integrate with central hub API
-- Set up secure VPN communication
-- Create deployment packaging
-- Develop configuration management
-- Prepare documentation and training
-
-## 10. Migration Strategy
-
-Plan for migrating from the legacy system to the new sensor manager.
-
-### Key Migration Steps
-
-1. **Inventory Current Sensors**: Document all existing sensors and configurations
-2. **Map to New Framework**: Create mapping between old and new configurations
-3. **Parallel Operation**: Run both systems in parallel during transition
-4. **Data Validation**: Verify new system produces equivalent results
-5. **Gradual Cutover**: Migrate one sensor type at a time
-6. **Fallback Plan**: Maintain ability to revert to old system if needed
-
-### Configuration Migration Tool
-
-Develop a tool to automatically convert old sensor configurations to the new YAML format, preserving calibration settings and other critical parameters.
-
-## 11. Future Enhancements
-
-Potential future enhancements to the sensor manager system.
-
-### Planned Enhancements
-
-- **Machine Learning**: Implement on-device anomaly detection
-- **Edge Analytics**: Perform basic analysis on the edge device
-- **Remote Configuration**: Dynamic reconfiguration from central hub
-- **Firmware Updates**: Over-the-air updates for sensor firmware
-- **Energy Optimization**: Smart power management for battery operation
-- **Mesh Networking**: Connect multiple hives in a local mesh network
-- **Sensor Fusion**: Combine data from multiple sensors for enhanced insights
-- **Digital Twin**: Create virtual model of hive for simulation and prediction
+- Full implementation of all sensor types
+- Advanced calibration and validation
+- Media file handling
+- Data synchronization with central hub
+- Adaptive collection intervals
+- Comprehensive monitoring and alerting
+- User-triggered high-resolution mode
+- Advanced error handling and recovery
