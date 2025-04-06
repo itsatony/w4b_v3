@@ -4,99 +4,99 @@
 
 ### Core Framework
 
-- [ ] TODO: Design declarative configuration schema
-  - [ ] Define YAML structure for image configurations
-  - [ ] Create environment variable mapping
-  - [ ] Implement configuration validation
-  - [ ] Support inheritance and overrides
+- [x] DONE: Design declarative configuration schema
+  - [x] Define YAML structure for image configurations
+  - [x] Create environment variable mapping
+  - [x] Implement configuration validation
+  - [x] Support inheritance and overrides
 
-- [ ] TODO: Create base image acquisition module
-  - [ ] Implement base image download with checksum verification
-  - [ ] Add caching mechanism for efficiency
-  - [ ] Support multiple Raspberry Pi OS versions
-  - [ ] Support different Raspberry Pi hardware models
+- [x] DONE: Create base image acquisition module
+  - [x] Implement base image download with checksum verification
+  - [x] Add caching mechanism for efficiency
+  - [x] Support multiple Raspberry Pi OS versions
+  - [x] Support different Raspberry Pi hardware models
 
-- [ ] TODO: Implement disk image manipulation
-  - [ ] Create disk mounting and unmounting utilities
-  - [ ] Implement filesystem modification capabilities
-  - [ ] Add partition management utilities
-  - [ ] Create file injection mechanisms
+- [x] DONE: Implement disk image manipulation
+  - [x] Create disk mounting and unmounting utilities
+  - [x] Implement filesystem modification capabilities
+  - [x] Add partition management utilities
+  - [x] Create file injection mechanisms
 
-- [ ] TODO: Develop system configuration module
-  - [ ] Implement hostname and network configuration
-  - [ ] Add locale and timezone settings
-  - [ ] Create user management utilities
-  - [ ] Implement boot configuration
+- [x] DONE: Develop system configuration module
+  - [x] Implement hostname and network configuration
+  - [x] Add locale and timezone settings
+  - [x] Create user management utilities
+  - [x] Implement boot configuration
 
-- [ ] TODO: Create security configuration module
-  - [ ] Implement SSH key setup and configuration
-  - [ ] Add WireGuard VPN configuration 
-  - [ ] Create firewall rule management
-  - [ ] Implement security hardening
+- [x] DONE: Create security configuration module
+  - [x] Implement SSH key setup and configuration
+  - [x] Add WireGuard VPN configuration 
+  - [x] Create firewall rule management
+  - [x] Implement security hardening
 
-- [ ] TODO: Implement software installation module
-  - [ ] Create package installation mechanism
-  - [ ] Add Python environment setup
-  - [ ] Implement custom software installation
-  - [ ] Create service configuration utilities
+- [x] DONE: Implement software installation module
+  - [x] Create package installation mechanism
+  - [x] Add Python environment setup
+  - [x] Implement custom software installation
+  - [x] Create service configuration utilities
 
-- [ ] TODO: Develop database setup module
-  - [ ] Implement TimescaleDB installation
-  - [ ] Add database initialization
-  - [ ] Create user and schema setup
-  - [ ] Implement retention policy configuration
+- [x] DONE: Develop database setup module
+  - [x] Implement TimescaleDB installation
+  - [x] Add database initialization
+  - [x] Create user and schema setup
+  - [x] Implement retention policy configuration
 
-- [ ] TODO: Create sensor manager installation module
-  - [ ] Implement code deployment
-  - [ ] Add configuration file generation
-  - [ ] Create service setup
-  - [ ] Implement auto-start configuration
+- [x] DONE: Create sensor manager installation module
+  - [x] Implement code deployment
+  - [x] Add configuration file generation
+  - [x] Create service setup
+  - [x] Implement auto-start configuration
 
-- [ ] TODO: Implement monitoring setup module
-  - [ ] Add Prometheus node exporter
-  - [ ] Implement custom metrics exporters
-  - [ ] Create log collection setup
-  - [ ] Add health check capabilities
+- [x] DONE: Implement monitoring setup module
+  - [x] Add Prometheus node exporter
+  - [x] Implement custom metrics exporters
+  - [x] Create log collection setup
+  - [x] Add health check capabilities
 
-- [ ] TODO: Develop image validation module
-  - [ ] Implement structural validation
-  - [ ] Add service availability checks
-  - [ ] Create connectivity validation
-  - [ ] Implement security verification
+- [x] DONE: Develop image validation module
+  - [x] Implement structural validation
+  - [x] Add service availability checks
+  - [x] Create connectivity validation
+  - [x] Implement security verification
 
-- [ ] TODO: Create compression and distribution module
-  - [ ] Implement efficient compression
-  - [ ] Add checksumming
-  - [ ] Create metadata generation
-  - [ ] Implement distribution to download servers
+- [x] DONE: Create compression and distribution module
+  - [x] Implement efficient compression
+  - [x] Add checksumming
+  - [x] Create metadata generation
+  - [x] Implement distribution to download servers
 
 ### CLI and Integration
 
-- [ ] TODO: Develop command-line interface
-  - [ ] Implement argument parsing
-  - [ ] Create progress reporting
-  - [ ] Add interactive mode
-  - [ ] Implement logging and error reporting
+- [x] DONE: Develop command-line interface
+  - [x] Implement argument parsing
+  - [x] Create progress reporting
+  - [x] Add interactive mode
+  - [x] Implement logging and error reporting
 
-- [ ] TODO: Create integration with hive configuration manager
-  - [ ] Implement configuration fetching
-  - [ ] Add security credential acquisition
-  - [ ] Create automatic updates
-  - [ ] Implement validation against hub requirements
+- [x] DONE: Create integration with hive configuration manager
+  - [x] Implement configuration fetching
+  - [x] Add security credential acquisition
+  - [x] Create automatic updates
+  - [x] Implement validation against hub requirements
 
 ### Documentation and Testing
 
-- [ ] TODO: Create comprehensive documentation
-  - [ ] Develop user guide
-  - [ ] Create architecture documentation
-  - [ ] Add API references
-  - [ ] Create troubleshooting guide
+- [x] DONE: Create comprehensive documentation
+  - [x] Develop user guide
+  - [x] Create architecture documentation
+  - [x] Add API references
+  - [x] Create troubleshooting guide
 
 - [ ] TODO: Implement testing framework
-  - [ ] Create unit tests
-  - [ ] Implement integration tests
-  - [ ] Add validation test suite
-  - [ ] Create CI/CD pipeline
+  - [x] DONE: Create unit tests
+  - [ ] TODO: Implement integration tests
+  - [ ] TODO: Add validation test suite
+  - [ ] TODO: Create CI/CD pipeline
 
 ## Architecture Decision Records (ADRs)
 
@@ -159,4 +159,22 @@
 - Context: We need to ensure images can be reproduced exactly for debugging and auditing.
 - Decision: We will implement versioning and reproducibility features in the build process.
 - Consequences: This improves traceability and debugging capabilities but requires careful management of dependencies and build environments. We'll need to implement proper versioning for all components and record all build inputs.
+
+### ADR-11: Error Handling with Circuit Breaker Pattern
+
+- Context: The image generation process involves various external operations that can fail temporarily or permanently.
+- Decision: We will implement a circuit breaker pattern for fault tolerance and graceful degradation during image generation.
+- Consequences: This approach prevents cascading failures and improves resilience, but adds some complexity to the codebase. It enables automatic recovery from transient failures and clear reporting of persistent issues.
+
+### ADR-12: Containerized Deployment
+
+- Context: The image generator needs to run in various environments with consistent dependencies.
+- Decision: We will provide Docker/Podman containerization for the image generator to ensure consistent operation.
+- Consequences: Containerization ensures dependency consistency and simplifies deployment, but requires container runtime and potentially elevated permissions. It isolates the image generation process from the host system and makes it easier to manage.
+
+### ADR-13: Component-Based Architecture
+
+- Context: The image generator has several distinct responsibilities that should be modular and testable.
+- Decision: We will implement a component-based architecture with clear separation of concerns.
+- Consequences: This approach improves testability and maintainability but requires careful interface design between components. It enables parallel development and easier replacement of individual components in the future.
 

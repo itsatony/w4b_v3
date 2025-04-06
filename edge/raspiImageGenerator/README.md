@@ -178,3 +178,151 @@ Common issues and solutions:
 - **Space Issues**: At least 10GB free space is required for image generation
 - **Validation Failures**: See logs in the output directory for detailed errors
 
+## Real-World Image Generation Example
+
+This section walks through generating a Raspberry Pi image using a real hive configuration from the hive configuration manager.
+
+### Prerequisites
+
+1. Access to the hive configuration from the hive configuration manager
+2. Sufficient disk space (~8GB for working files)
+3. Required permissions to run loop devices (root or sudo access)
+4. Python environment with all dependencies installed
+
+### Step 1: Prepare the Configuration
+
+First, convert the hive configuration into a format suitable for the image generator:
+
+```bash
+# Create a directory for your configurations if it doesn't exist
+mkdir -p configs
+
+# Use the built-in conversion utility (alternative to manually creating the config file)
+python -m utils.config_converter --hive-config /path/to/hive_config.yaml --output configs/hive_image_config.yaml --pi-model 3
+```
+
+Alternatively, you can manually create the configuration file as shown in the example below.
+
+### Step 2: Verify the Configuration
+
+Review the configuration file to ensure all required settings are present:
+
+```bash
+# Display and check the configuration
+cat configs/hive_image_config.yaml
+```
+
+Ensure that security credentials (SSH keys, VPN keys, passwords) are correctly included in the configuration.
+
+### Step 3: Run the Image Generator
+
+Generate the image using the configuration file:
+
+```bash
+# Generate the image
+sudo python image_generator.py --config-file configs/hive_0Bpfj4cT_pi3.yaml --verbose
+```
+
+The image generator will:
+
+1. Download the appropriate Raspberry Pi OS base image
+2. Mount and modify the image with custom settings
+3. Install required software packages
+4. Configure security settings (SSH, VPN, firewall)
+5. Set up the sensor management system
+6. Validate the generated image
+7. Compress and prepare the final image
+
+The output will be stored in the directory specified in the configuration file.
+
+### Step 4: Verify the Generated Image
+
+Verify the generated image:
+
+```bash
+# Check the image integrity
+python image_generator.py --verify --image-file /tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img.xz
+```
+
+### Step 5: Deploy the Image
+
+The image can now be written to an SD card using standard tools:
+
+```bash
+# Write the image to an SD card (Linux example)
+xzcat /tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img.xz | sudo dd of=/dev/sdX bs=4M status=progress
+```
+
+### Example: Generating an Image for Raspberry Pi 3 Using Hive Configuration
+
+Here's a complete example using a real hive configuration to generate a Raspberry Pi 3 image:
+
+```bash
+# Clone the repository if you haven't already
+git clone https://github.com/itsatony/w4b_v3.git
+cd w4b_v3/edge/raspiImageGenerator
+
+# Make sure your environment is set up
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Generate the image (using a pre-prepared configuration)
+sudo python image_generator.py --config-file configs/hive_0Bpfj4cT_pi3.yaml --output-dir /tmp/generated_images
+
+# After generation, the image will be at:
+# /tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img.xz
+
+# Write the image to an SD card
+sudo dd if=/tmp/generated_images/w4b_pi3_hive_0Bpfj4cT_20230615_120000.img of=/dev/sdX bs=4M status=progress
+```
+
+### Troubleshooting Common Issues
+
+1. **Insufficient Disk Space**: Ensure at least 8GB free space for working files
+2. **Permission Errors**: Run with sudo to access loop devices
+3. **Network Issues**: Check your internet connection if base image download fails
+4. **Mount Failures**: Ensure loop devices are available on your system
+5. **SSH Key Format**: Ensure SSH keys are properly formatted in the configuration
+6. **WireGuard Configuration**: Check WireGuard endpoint and key formats
+
+### Advanced: Automating Image Generation
+
+For automated generation of multiple images, create a script:
+
+```python
+import subprocess
+import glob
+import os
+
+HIVE_CONFIG_DIR = "/path/to/hive_configs"
+OUTPUT_DIR = "/path/to/output"
+
+# Find all hive configs
+hive_configs = glob.glob(f"{HIVE_CONFIG_DIR}/*.yaml")
+
+for config_file in hive_configs:
+    hive_id = os.path.basename(config_file).replace(".yaml", "")
+    output_file = f"{OUTPUT_DIR}/{hive_id}_pi3.img.xz"
+    
+    # Generate Raspberry Pi 3 compatible configuration
+    subprocess.run([
+        "python", "-m", "utils.config_converter",
+        "--hive-config", config_file,
+        "--output", f"/tmp/{hive_id}_pi3_config.yaml",
+        "--pi-model", "3"
+    ])
+    
+    # Generate the image
+    subprocess.run([
+        "sudo", "python", "image_generator.py",
+        "--config-file", f"/tmp/{hive_id}_pi3_config.yaml",
+        "--output-dir", OUTPUT_DIR,
+        "--verbose"
+    ])
+    
+    print(f"Generated image for {hive_id}: {output_file}")
+```
+
+This script will automatically convert configurations and generate images for multiple hives.
+

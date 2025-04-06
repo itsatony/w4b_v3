@@ -1,0 +1,71 @@
+# W4B Raspberry Pi Image Generator Configuration
+version: "1.0.0"
+hive_id: "hive_test01"
+
+base_image:
+  version: "2023-12-05-raspios-bullseye-arm64-lite"
+  url_template: "https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-{version}/2023-12-05-raspios-bullseye-arm64-lite.img.xz"
+  checksum_type: "sha256"
+  checksum: "97e768a53c5ddf73eb68d40e71213548eaded6f059e1b83b9c8f1438a92a5baa"
+  model: "pi4"
+
+system:
+  hostname_prefix: "hive"
+  timezone: "Europe/Berlin"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  ssh:
+    enabled: true
+    password_auth: true
+    port: 22
+
+security:
+  firewall:
+    enabled: true
+    allow_ports: [22, 51820, 9100, 9102]
+  vpn:
+    type: "wireguard"
+    server: "vpn.example.com:51820"
+    subnet: "10.10.0.0/24"
+    # These would be populated by the hive config manager in production:
+    # private_key: ""
+    # public_key: ""
+    # client_ip: "10.10.0.2/32"
+
+services:
+  sensor_manager:
+    enabled: true
+    auto_start: true
+  monitoring:
+    enabled: true
+    metrics_port: 9100
+  database:
+    type: "timescaledb"
+    version: "latest"
+    username: "hive"
+    # password: "" # Will be populated by the hive config manager
+    database: "hivedb"
+    retention_days: 30
+
+software:
+  packages:
+    - postgresql-14
+    - postgresql-14-timescaledb-2
+    - wireguard
+    - python3-pip
+    - python3-venv
+    - prometheus-node-exporter
+    - wget
+    - curl
+  python_packages:
+    - asyncpg
+    - asyncio
+    - pyyaml
+    - prometheus_client
+
+output:
+  directory: "/tmp"
+  naming_template: "{timestamp}_{hive_id}"
+  compress: true
+  upload: false
+  # upload_url: "" # Will be configured for automatic upload if needed

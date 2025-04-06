@@ -1,0 +1,115 @@
+# Configuration for Raspberry Pi 3 image generation for hive_0Bpfj4cT
+version: "1.0.0"
+hive_id: "hive_0Bpfj4cT"
+
+# Source this from the hive config manager
+metadata:
+  name: "hans01"
+  location: "Hilgertshausen"
+  latitude: 48.123456
+  longitude: 11.123456
+  notes: ""
+
+# Base image configuration - specific to Raspberry Pi 3
+base_image:
+  version: "raspios_lite_armhf-2024-11-19/2024-11-19-raspios-bookworm-armhf-lite.img.xz"
+  url_template: "https://downloads.raspberrypi.org/raspios_lite_armhf/images/{version}"
+  checksum_type: "sha256"
+  checksum: "1dacc70cc09162c995020ac1739ee60e6843cf2bfb393654e694e3f017d781bb"
+  model: "pi3"
+
+# System configuration
+system:
+  hostname_prefix: "hive"
+  timezone: "Europe/Berlin"  # From hive config
+  locale: "en_US.UTF-8"
+  keyboard: "de"  # German keyboard layout for location
+  ssh:
+    enabled: true
+    password_auth: true  # From hive config
+    port: 22  # From hive config
+
+# Security configuration
+security:
+  firewall:
+    enabled: true
+    allow_ports: [22, 51820, 9100, 9102]
+  ssh:
+    public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgUsd2f2xQ/hBpZro7F4jJLeHGfwhj0/VZRak2WmQtw hive-hive_0Bpfj4cT"
+    private_key: "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACAIFLHdn9sUP4QaWa6OxeIyS3hxn8IY9P1WUWpNlpkLcAAAAJjmxJlK5sSZ\nSgAAAAtzc2gtZWQyNTUxOQAAACAIFLHdn9sUP4QaWa6OxeIyS3hxn8IY9P1WUWpNlpkLcA\nAAAEAjShoznJefqTJkqoZWRXyjL+vDjG7wPcG4hFrdgTELBggUsd2f2xQ/hBpZro7F4jJL\neHGfwhj0/VZRak2WmQtwAAAAEmhpdmUtaGl2ZV8wQnBmajRjSgECAw==\n-----END OPENSSH PRIVATE KEY-----"
+    allow_root: true  # From hive config
+  vpn:
+    type: "wireguard"
+    enabled: true
+    private_key: "4NyDoECHaLbLuia1zw2Y8reIx2RmY6DR/GbLKi6w/kg="
+    public_key: "i2wYVJZMl7VelX9GQVvtXVAwOxheiahFL3ZKJKRQPX4="
+    server: "queenb.vaudience.io:51820"
+    client_ip: "10.10.0.2/32"
+    subnet: "10.10.0.0/24"
+    config: |
+      [Interface]
+      PrivateKey = 4NyDoECHaLbLuia1zw2Y8reIx2RmY6DR/GbLKi6w/kg=
+      Address = 10.10.0.2/32
+      DNS = 1.1.1.1, 8.8.8.8
+
+      [Peer]
+      PublicKey = YOUR_SERVER_PUBLIC_KEY
+      Endpoint = queenb.vaudience.io:51820
+      AllowedIPs = 10.10.0.0/24
+      PersistentKeepalive = 25
+
+# Services configuration
+services:
+  sensor_manager:
+    enabled: true
+    auto_start: true
+    config:
+      interval: 60  # From hive config
+      batch_size: 100  # From hive config
+      retry_attempts: 3  # From hive config
+      retry_delay: 5  # From hive config
+      buffer_size: 1000  # From hive config
+      logging:
+        level: "INFO"  # From hive config
+        max_size: "100M"  # From hive config
+  monitoring:
+    enabled: true
+    metrics_port: 9100
+  database:
+    type: "timescaledb"
+    username: "hiveuser"  # From hive config
+    password: "superhans"  # From hive config
+    database: "hivedb"  # From hive config
+    retention_days: 30
+
+# Software packages to install
+software:
+  packages:
+    - postgresql-13
+    - postgresql-13-timescaledb-2
+    - wireguard
+    - python3-pip
+    - python3-venv
+    - prometheus-node-exporter
+    - wget
+    - curl
+    - htop
+    - iotop
+  python_packages:
+    - asyncpg
+    - aiohttp
+    - pyyaml
+    - prometheus_client
+    - psutil
+
+# Network configuration
+network:
+  primary: "lan"  # From hive config
+  lan:
+    dhcp: true  # From hive config
+
+# Output configuration
+output:
+  directory: "/tmp/generated_images"
+  naming_template: "w4b_pi3_{hive_id}_{timestamp}"
+  compress: true
