@@ -4,20 +4,58 @@
 
 ### Core Framework
 
-- [ ] TODO: Create SensorBase abstract class
-- [ ] TODO: Implement configuration loading and validation
-- [ ] TODO: Create sensor factory and registry
-- [ ] TODO: Setup basic logging framework
-- [ ] TODO: Implement error handling utilities
-- [ ] TODO: Create testing framework and basic tests
+- [x] DONE: Create SensorBase abstract class
+  - Created an abstract base class with proper type hints and docstrings
+  - Implemented calibration utility functions
+  - Added basic status tracking
+  - Created sensor-specific exception types
+- [x] DONE: Implement configuration loading and validation
+  - Created ConfigManager class for YAML configuration
+  - Implemented environment variable substitution
+  - Added dot-notation access to configuration values
+  - Added sensor filtering by type and enabled status
+- [x] DONE: Create sensor factory and registry
+  - Implemented SensorRegistry for registering sensor implementations
+  - Created SensorFactory for instantiating sensors from configuration
+  - Added dynamic importing of sensor classes
+- [x] DONE: Setup basic logging framework
+  - Implemented logging configuration from YAML
+  - Added contextual logging adapter
+  - Created fallback logging for error cases
+- [x] DONE: Implement error handling utilities
+  - Created retry decorator with exponential backoff
+  - Implemented circuit breaker pattern
+  - Added detailed exception formatting
+  - Created utility for handling critical errors
+- [x] DONE: Create testing framework and basic tests
+  - Set up pytest configuration and fixtures
+  - Created mock sensor for testing
+  - Added tests for SensorBase functionality
+  - Added tests for ConfigManager
 
 ### Temperature Sensor Implementation
 
-- [ ] TODO: Implement TemperatureW1Sensor class
-- [ ] TODO: Create 1-Wire device detection utility
-- [ ] TODO: Implement basic calibration (offset/scale)
-- [ ] TODO: Add reading validation logic
-- [ ] TODO: Create tests for temperature sensor
+- [x] DONE: Implement TemperatureW1Sensor class
+  - Created concrete implementation for 1-Wire temperature sensors
+  - Added support for DS18B20 sensors
+  - Implemented reading and parsing of sensor data
+  - Added retry mechanism for failed readings
+- [x] DONE: Create 1-Wire device detection utility
+  - Implemented functions to discover 1-Wire devices
+  - Added functions to read and parse temperature data
+  - Created utility for sensor validation
+- [x] DONE: Implement basic calibration (offset/scale)
+  - Implemented linear, offset, scale calibration methods
+  - Added configuration for min/max valid temperatures
+  - Created mock sensor implementation for testing
+- [x] DONE: Add reading validation logic
+  - Added CRC validation of sensor readings
+  - Implemented temperature range validation
+  - Added error handling for invalid readings
+- [x] DONE: Create tests for temperature sensor
+  - Added unit tests for TemperatureW1Sensor
+  - Created tests with mock data for validation
+  - Added tests for calibration and metadata
 
 ### Dummy Sensor Implementations
 
@@ -96,4 +134,16 @@
 - Context: Sensor reading operations can block and delay other operations.
 - Decision: We will use asynchronous I/O (via asyncio) for sensor communication and data collection.
 - Consequences: This allows non-blocking operation and better resource utilization. It adds some complexity to the code but provides better scalability as we add more sensors.
+
+### ADR-8: Three-Layer Error Handling Strategy
+
+- Context: Sensor communication and data collection can fail in various ways, requiring robust error handling.
+- Decision: We will implement a three-layer error handling strategy: 1) Sensor-level retries, 2) Circuit breaker pattern for failing components, and 3) Graceful degradation for the entire system.
+- Consequences: This approach provides resilience at multiple levels, preventing cascading failures while allowing the system to continue operating with partial functionality when some components fail.
+
+### ADR-9: Test-Driven Development with Mock Sensors
+
+- Context: Testing sensor implementations requires hardware that may not always be available during development.
+- Decision: We will use a test-driven approach with mock sensors that simulate real hardware behavior.
+- Consequences: This enables development and testing without physical hardware, speeds up the development cycle, and ensures consistent test environments. It requires careful design of mock implementations to accurately simulate real-world behavior.
 
