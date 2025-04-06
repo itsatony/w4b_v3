@@ -16,6 +16,8 @@ from pathlib import Path
 from image_generator import ImageGenerator
 from utils.logging_setup import configure_logging
 
+VERSION = "1.0.0"
+__author__ = "W4B Team"
 
 def parse_arguments() -> argparse.Namespace:
     """

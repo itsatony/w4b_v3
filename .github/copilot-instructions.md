@@ -68,7 +68,7 @@ These are typical packages we use:
 - CLI Progress: For long tasks, use single-line progress bars (tqdm) showing progress, time elapsed/remaining.
 - CLI Interactivity: Use libraries like rich.prompt or questionary for user input (validation, defaults, choices).
 - Standard Logging: Use the logging module. Configure formatters for clear output: [timestamp] [module_name] [LEVEL] message. Use standard levels (DEBUG, INFO, WARNING, ERROR, CRITICAL) appropriately.
-- Structured Logging: Log in JSON format for aggregation systems like OpenSearch. Use libraries like python-json-logger. Include relevant context using the extra={...} parameter (e.g., request IDs, user IDs).
+- Structured Logging: Log in JSON format for aggregation systems like Grafana+Loki. Use libraries like python-json-logger. Include relevant context using the extra={...} parameter (e.g., request IDs, user IDs).
 - Error Reporting: Consider dedicated services (e.g., Sentry) for critical production error aggregation and alerting. Errors should be clearly identifyable with unique messages and codes if possible along with added information based on what is available (e.g., request ID, user ID, etc.).
 
 Example Output Explanation

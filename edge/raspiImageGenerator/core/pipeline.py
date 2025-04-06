@@ -25,6 +25,7 @@ from core.stages.services import ServiceConfigStage
 from core.stages.w4b_software import W4BSoftwareStage
 from core.stages.validation import ValidationStage
 from core.stages.compression import CompressionStage
+from core.stages.publication import PublicationStage  # Add import for new stage
 
 
 class BuildPipeline:
@@ -97,7 +98,8 @@ class BuildPipeline:
             ServiceConfigStage(self.state),
             W4BSoftwareStage(self.state),
             ValidationStage(self.state),
-            CompressionStage(self.state)
+            CompressionStage(self.state),
+            PublicationStage(self.state)  # Add new stage to pipeline
         ]
     
     async def _execute_stage(self, stage_index: int) -> bool:
