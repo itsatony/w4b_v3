@@ -99,16 +99,42 @@
 
 ### Dummy Sensor Implementations
 
-- [ ] TODO: Create dummy implementations for all other sensor types
-- [ ] TODO: Implement common sensor utilities
-- [ ] TODO: Add configuration parsers for all sensor types
+- [x] DONE: Create dummy implementations for all other sensor types
+  - Implemented realistic dummy implementations for all required sensors
+  - Added simulation parameters for configurable behavior
+  - Created realistic data patterns with day/night cycles
+  - Added configurable failure simulation for testing
+- [x] DONE: Implement common sensor utilities
+  - Created a DummySensorBase class for shared functionality
+  - Added noise generation and pattern simulation
+  - Created realistic time-based patterns for all sensor types
+- [x] DONE: Add configuration parsers for all sensor types
+  - Added configuration structures for all sensor types
+  - Created proper defaults for each sensor type
+  - Implemented validation of sensor-specific parameters
 
 ### Monitoring
 
-- [ ] TODO: Setup structured logging
-- [ ] TODO: Add basic Prometheus metrics
-- [ ] TODO: Create sensor status tracking
-- [ ] TODO: Implement simple health check
+- [x] DONE: Setup structured logging
+  - Created structured logger with context data
+  - Added JSON logging formatter
+  - Implemented log rotation configuration
+  - Created different log levels for different components
+- [x] DONE: Add basic Prometheus metrics
+  - Created metrics manager for centralized metrics handling
+  - Added standard system and sensor metrics
+  - Created performance and status metrics for sensors
+  - Added timing decorator for performance monitoring
+- [x] DONE: Create sensor status tracking
+  - Implemented sensor status dashboard metrics
+  - Added error counters with proper labeling
+  - Created sensor-specific status gauges
+  - Added system-level health metrics
+- [x] DONE: Implement simple health check
+  - Added health status endpoints
+  - Created component health checks
+  - Implemented sensor validation routines
+  - Added database connection monitoring
 
 ### Integration
 
@@ -116,12 +142,20 @@
   - Implemented argument parsing for configuration path
   - Added debug mode option
   - Created clean shutdown handling
-- [ ] TODO: Add systemd service definition
+- [x] DONE: Add systemd service definition
+  - Created systemd service file with proper dependencies
+  - Added security hardening configuration
+  - Implemented resource limits
+  - Created environment variable configuration
 - [x] DONE: Implement graceful shutdown and cleanup
   - Added signal handling for clean shutdown
   - Implemented resource cleanup on exit
   - Created proper error handling during shutdown
-- [ ] TODO: Create sample configuration files
+- [x] DONE: Create sample configuration files
+  - Added detailed sample configuration with comments
+  - Created separate environment file template
+  - Added documentation for configuration options
+  - Created reference implementation for common sensors
 
 ## Architecture Decision Records (ADRs)
 
@@ -190,4 +224,16 @@
 - Context: Failed components (sensors or database) should not bring down the entire system.
 - Decision: We will implement the circuit breaker pattern for all external interactions (sensors, database).
 - Consequences: This prevents cascading failures by isolating problematic components, allowing the system to continue operating with reduced functionality. It automatically recovers when problems are resolved, improving overall system resilience.
+
+### ADR-12: Realistic Dummy Sensor Implementations
+
+- Context: We need to test and demonstrate the system with multiple sensor types before implementing all hardware interfaces.
+- Decision: We will create realistic dummy implementations for all sensor types that simulate actual sensor behavior, including time-based patterns and natural variations.
+- Consequences: This allows for comprehensive system testing and demonstrations without requiring full hardware implementations. The dummy sensors provide realistic data patterns that can be used for UI development, analysis testing, and system validation before hardware is available.
+
+### ADR-13: Structured Logging with Context
+
+- Context: Debugging and monitoring distributed systems requires comprehensive and structured logs.
+- Decision: We will implement structured logging with contextual information, providing both human-readable and machine-parseable (JSON) formats.
+- Consequences: This improves debuggability and enables advanced log analysis. The structured format allows logs to be ingested by monitoring systems like Loki, while context information makes it easier to trace issues across components. It adds slightly more complexity to logging code but greatly improves operational capabilities.
 

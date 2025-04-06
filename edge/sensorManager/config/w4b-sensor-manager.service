@@ -1,0 +1,48 @@
+[Unit]
+Description=W4B Sensor Management System
+Documentation=https://github.com/itsatony/w4b_v3
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=w4b
+Group=w4b
+WorkingDirectory=/opt/w4b/sensorManager
+
+# Set environment variables
+Environment=PYTHONUNBUFFERED=1
+Environment=W4B_CONFIG_PATH=/etc/w4b/sensor_config.yaml
+Environment=PROMETHEUS_MULTIPROC_DIR=/tmp/w4b_prometheus
+EnvironmentFile=-/etc/w4b/sensor_manager.env
+
+# Start the service
+ExecStart=/opt/w4b/sensorManager/venv/bin/python /opt/w4b/sensorManager/main.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+
+# Resource limits (adjust as needed)
+CPUWeight=90
+IOWeight=90
+MemoryLimit=200M
+
+# Standard output and error handling
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=w4b-sensors
+
+# Security settings
+ProtectSystem=full
+PrivateTmp=true
+# We need device access for sensors
+PrivateDevices=false
+NoNewPrivileges=true
+# Read-only access to system directories
+ReadOnlyPaths=/bin /sbin /usr /lib /etc
+# Allow write access to specific directories
+ReadWritePaths=/var/log/w4b /run/w4b /opt/w4b/sensorManager
+
+[Install]
+WantedBy=multi-user.target

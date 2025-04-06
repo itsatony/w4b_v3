@@ -424,7 +424,7 @@ def main():
     if args.generate_image:
         # Import and use the image generator
         try:
-            from edge.raspiImageGenerator.image_generator_cli import ImageGeneratorCLI
+            from edge.raspiImageGenerator.outdated.image_generator_cli import ImageGeneratorCLI
             generator = ImageGeneratorCLI()
             generator.generate_image(args.generate_image)
             sys.exit(0)

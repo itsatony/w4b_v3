@@ -1,0 +1,331 @@
+# w4b Sensor Management System Configuration
+# ------------------------------------------
+#
+# This configuration file controls all aspects of the sensor management system,
+# including sensor setup, data collection, storage, and monitoring.
+#
+# Environment variable substitution is supported using ${VAR_NAME} syntax.
+
+# Basic system configuration
+version: 1.0.0
+hive_id: ${HIVE_ID:-hive_default}  # Unique identifier for this hive
+timezone: ${TIMEZONE:-UTC}         # Timezone for timestamps
+
+# Collection settings
+collectors:
+  # Base path for collector components
+  base_path: /opt/w4b/collectors
+  
+  # Default collection interval in seconds
+  interval: 60
+  
+  # Collection operation timeout in seconds
+  timeout: 30
+  
+  # Maximum consecutive failures before marking a sensor as failed
+  max_failures: 3
+  
+  # Buffer settings
+  buffer_size: 1000       # Maximum readings to buffer before forced flush
+  buffer_timeout: 300     # Maximum time in seconds to keep readings in buffer
+  
+  # Adaptive collection settings
+  adaptive:
+    enabled: true         # Whether to enable adaptive collection intervals
+    trigger_threshold: 5  # Significant change threshold to trigger higher frequency
+    high_frequency: 10    # High-frequency collection interval in seconds
+    duration: 3600        # Duration of high-frequency collection in seconds
+
+# Storage configuration
+storage:
+  # Database type (currently only timescaledb supported)
+  type: timescaledb
+  
+  # Database connection parameters
+  host: localhost
+  port: 5432
+  database: hivedb
+  user: w4b
+  password: ${DB_PASSWORD:-changeme}
+  
+  # Connection pool settings
+  min_connections: 1
+  max_connections: 10
+  command_timeout: 60.0
+  
+  # Data retention settings
+  retention_days: 30    # Days before data is deleted or compressed
+  
+  # Batch operation settings
+  batch_size: 100       # Number of readings to insert in a single batch
+  batch_timeout: 60     # Maximum time to wait before flushing a batch
+
+  # Synchronization with central hub (future)
+  sync:
+    enabled: false      # Enable syncing with central hub (not implemented in MVP)
+    url: null
+    api_key: null
+    interval: 3600      # Sync interval in seconds
+
+# Sensor definitions
+sensors:
+  # Temperature sensor configuration
+  - id: temp_01
+    name: "Temperature Sensor 1"
+    type: temperature_w1
+    enabled: true
+    
+    # Hardware interface configuration
+    interface:
+      type: 1-wire
+      # For real sensor, uncomment one of these:
+      # bus_path: /sys/bus/w1/devices/28-0000098a0c61/w1_slave  # Specific device
+      # device_id: 28-0000098a0c61                             # Device ID for auto-discovery
+      
+      # For testing/demo with dummy sensor:
+      simulation:
+        base_value: 22.5          # Base temperature (°C)
+        noise_level: 0.2          # Random noise amount
+        seasonal_factor: 3.0      # Day/night difference
+        simulate_failures: false  # Whether to simulate random failures
+      
+      # Validation parameters
+      min_valid_temp: -55.0
+      max_valid_temp: 125.0
+      
+      # Read operation parameters
+      read_retries: 3             # Number of retry attempts
+      retry_delay: 0.5            # Delay between retries in seconds
+    
+    # Collection settings (override defaults)
+    collection:
+      interval: 60               # Collection interval in seconds
+      retries: 3                 # Maximum retries for failed collection
+      priority: 1                # Collection priority (lower = higher priority)
+    
+    # Calibration parameters
+    calibration:
+      method: linear             # Calibration method: offset, scale, linear, polynomial
+      offset: -0.5               # Calibration offset (for offset, linear methods)
+      scale: 1.0                 # Calibration scale factor (for scale, linear methods)
+    
+    # Metric definitions
+    metrics:
+      - name: temperature        # Metric name
+        unit: celsius            # Unit of measurement
+        precision: 1             # Decimal precision
+        min_valid: -55.0         # Minimum valid reading
+        max_valid: 125.0         # Maximum valid reading
+  
+  # Humidity sensor configuration
+  - id: humidity_01
+    name: "Humidity Sensor 1"
+    type: humidity
+    enabled: true
+    
+    # Hardware interface configuration
+    interface:
+      type: i2c
+      # For real sensor, enable these:
+      # bus: 1
+      # address: 0x40
+      
+      # For testing/demo with dummy sensor:
+      simulation:
+        base_value: 45.0
+        noise_level: 1.5
+        seasonal_factor: 5.0
+    
+    # Collection settings
+    collection:
+      interval: 300
+    
+    # Calibration parameters
+    calibration:
+      method: offset
+      offset: 2.0
+    
+    # Metric definitions
+    metrics:
+      - name: humidity
+        unit: percent
+        precision: 0
+        min_valid: 0.0
+        max_valid: 100.0
+
+  # Weight sensor configuration
+  - id: weight_01
+    name: "Hive Scale"
+    type: weight
+    enabled: true
+    
+    # Hardware interface configuration
+    interface:
+      type: gpio
+      # For real HX711 sensor:
+      # data_pin: 5
+      # clock_pin: 6
+      
+      # For testing/demo with dummy sensor:
+      simulation:
+        base_value: 25000.0       # 25kg in grams
+        noise_level: 5.0
+        drift_factor: 0.02
+        activity_chance: 0.02     # Chance of bee activity
+        activity_magnitude: 100.0 # Size of activity changes
+        daily_change: 15.0        # Daily weight increase (honey production)
+    
+    # Collection settings
+    collection:
+      interval: 600               # Every 10 minutes
+    
+    # Calibration parameters
+    calibration:
+      method: linear
+      offset: 0.0
+      scale: 1.0
+    
+    # Metric definitions
+    metrics:
+      - name: weight
+        unit: grams
+        precision: 0
+        min_valid: 0.0
+        max_valid: 200000.0
+
+# Sensor type global configurations
+sensor_types:
+  # Temperature sensor type
+  temperature_w1:
+    module: sensors.temperature
+    class: TemperatureW1Sensor
+    timeout: 5
+  
+  # For testing/demo:
+  temperature:
+    module: sensors.dummy_sensors
+    class: DummyTemperatureSensor
+    timeout: 5
+  
+  humidity:
+    module: sensors.dummy_sensors
+    class: DummyHumiditySensor
+    timeout: 5
+  
+  weight:
+    module: sensors.dummy_sensors
+    class: DummyWeightSensor
+    timeout: 5
+  
+  pressure:
+    module: sensors.dummy_sensors
+    class: DummyPressureSensor
+    timeout: 5
+  
+  light:
+    module: sensors.dummy_sensors
+    class: DummyLightSensor
+    timeout: 5
+  
+  wind:
+    module: sensors.dummy_sensors
+    class: DummyWindSensor
+    timeout: 5
+  
+  rain:
+    module: sensors.dummy_sensors
+    class: DummyRainSensor
+    timeout: 5
+  
+  dust:
+    module: sensors.dummy_sensors
+    class: DummyDustSensor
+    timeout: 5
+  
+  sound:
+    module: sensors.dummy_sensors
+    class: DummySoundSensor
+    timeout: 10
+
+# Logging configuration
+logging:
+  version: 1
+  formatters:
+    standard:
+      format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    json:
+      class: utils.logging_setup.JsonFormatter
+      format: '%(timestamp)s [%(level)s] %(name)s: %(message)s'
+      include_fields:
+        - timestamp
+        - level
+        - name
+        - message
+        - sensor_id
+        - hive_id
+  
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: standard
+      level: INFO
+    
+    file:
+      class: logging.handlers.RotatingFileHandler
+      formatter: standard
+      level: DEBUG
+      filename: ${LOG_DIR:-/var/log/w4b}/sensors.log
+      maxBytes: 10485760   # 10MB
+      backupCount: 5
+    
+    json_file:
+      class: logging.handlers.RotatingFileHandler
+      formatter: json
+      level: INFO
+      filename: ${LOG_DIR:-/var/log/w4b}/sensors.json
+      maxBytes: 10485760
+      backupCount: 5
+  
+  loggers:
+    # Root logger
+    '':
+      level: WARNING
+      handlers: [console]
+      propagate: true
+    
+    # Main application logger
+    main:
+      level: INFO
+      handlers: [console, file]
+      propagate: false
+    
+    # Sensor module loggers
+    sensors:
+      level: INFO
+      handlers: [console, file, json_file]
+      propagate: false
+    
+    # Storage module loggers
+    storage:
+      level: INFO
+      handlers: [console, file]
+      propagate: false
+    
+    # Collectors module loggers
+    collectors:
+      level: INFO
+      handlers: [console, file]
+      propagate: false
+
+# Prometheus metrics configuration
+metrics:
+  prometheus:
+    enabled: true
+    port: 9100
+    prefix: w4b
+    endpoint: /metrics
+    
+    # Default labels for all metrics
+    default_labels:
+      hive_id: ${HIVE_ID:-hive_default}
+      location: ${LOCATION:-unknown}
