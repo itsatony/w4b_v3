@@ -203,16 +203,16 @@ python -m utils.config_converter --hive-config /path/to/hive_config.yaml --outpu
 
 Alternatively, you can manually create the configuration file as shown in the example below.
 
-### Step 2: Verify the Configuration
+### Step 2: Install Dependencies
 
-Review the configuration file to ensure all required settings are present:
+Before running the image generator, make sure to install all the required dependencies with sudo (since the image generator requires root privileges):
 
 ```bash
-# Display and check the configuration
-cat configs/hive_image_config.yaml
+# Install dependencies as root/sudo user
+sudo pip install -r requirements.txt
 ```
 
-Ensure that security credentials (SSH keys, VPN keys, passwords) are correctly included in the configuration.
+This step is crucial because running the script with sudo uses the system's Python environment, not your user environment.
 
 ### Step 3: Run the Image Generator
 

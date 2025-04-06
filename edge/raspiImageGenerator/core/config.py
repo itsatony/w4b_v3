@@ -8,6 +8,7 @@ command-line arguments, and configuration files.
 """
 
 import os
+import sys  # Add missing sys import
 import logging
 import re
 from pathlib import Path

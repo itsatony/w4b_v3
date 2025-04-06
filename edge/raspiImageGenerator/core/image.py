@@ -53,131 +53,158 @@ class ImageBuilder:
         self.boot_mount = None
         self.root_mount = None
         self.loop_device = None
+
+        self.cache_dir = work_dir / "cache"
+        self.extracted_cache_dir = self.cache_dir / "extracted"
+        self.downloads_cache_dir = self.cache_dir / "downloads"
+        
+        # Create cache directories if they don't exist
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.extracted_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.downloads_cache_dir.mkdir(parents=True, exist_ok=True)
     
-    async def download_image(self) -> Path:
+    async def get_base_image(self, url: str, checksum: str = None, checksum_type: str = "sha256") -> Path:
+        """
+        Get the base image, either from cache or by downloading.
+        
+        Args:
+            url: URL to download from if not cached
+            checksum: Optional checksum for verification
+            checksum_type: Checksum algorithm (sha256, md5, etc.)
+            
+        Returns:
+            Path to the image
+        """
+        # Generate a filename based on the URL
+        filename = Path(url).name
+        download_path = self.downloads_cache_dir / filename
+        
+        # Check if we have a cached download
+        if download_path.exists():
+            self.logger.info(f"Found cached download: {download_path}")
+            
+            # Verify checksum if provided
+            if checksum:
+                if await self._verify_checksum(download_path, checksum, checksum_type):
+                    self.logger.info("Checksum verification passed for cached download")
+                else:
+                    self.logger.warning("Checksum verification failed for cached download, re-downloading")
+                    await self.download_image(url, download_path)
+        else:
+            # Download the image
+            self.logger.info(f"Downloading image from {url}")
+            await self.download_image(url, download_path)
+            
+            # Verify checksum if provided
+            if checksum and not await self._verify_checksum(download_path, checksum, checksum_type):
+                raise ValueError(f"Checksum verification failed for downloaded image")
+        
+        # Check if we need to extract the image
+        if filename.endswith(".xz"):
+            # Check if we have a cached extracted version
+            extracted_filename = filename[:-3]  # Remove .xz extension
+            extracted_path = self.extracted_cache_dir / extracted_filename
+            
+            if extracted_path.exists():
+                self.logger.info(f"Found cached extracted image: {extracted_path}")
+                return extracted_path
+            else:
+                # Extract the image
+                self.logger.info(f"Extracting image: {download_path}")
+                extracted_path = await self._extract_image(download_path, extracted_path)
+                return extracted_path
+        
+        # If it's not compressed, just return the downloaded path
+        return download_path
+    
+    async def download_image(self, url: str, output_path: Path) -> Path:
         """
         Download a Raspberry Pi OS image.
         
+        Args:
+            url: URL to download from
+            output_path: Path to save the downloaded file
+            
         Returns:
-            Path: Path to the downloaded image
-            
-        Raises:
-            NetworkError: If download fails
+            Path to the downloaded file
         """
-        cache_dir = self.work_dir / "cache"
-        cache_dir.mkdir(exist_ok=True)
+        # Ensure parent directories exist
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Get image URL
-        base_image_config = self.config["base_image"]
-        version = base_image_config["version"]
-        url_template = base_image_config["url_template"]
-        url = url_template.format(version=version)
-        
-        self.logger.info(f"Downloading Raspberry Pi OS image from {url}")
-        
-        # Generate cache path
-        cache_filename = f"raspios_{version}.img.xz"
-        cache_path = cache_dir / cache_filename
-        
-        # Check if already downloaded
-        if cache_path.exists():
-            self.logger.info(f"Using cached image: {cache_path}")
-            
-            # Verify checksum if provided
-            if base_image_config.get("checksum"):
-                if await self._verify_checksum(cache_path, base_image_config["checksum"]):
-                    self.logger.info("Checksum verification passed")
-                else:
-                    self.logger.warning("Checksum verification failed, redownloading")
-                    cache_path.unlink()
-                    return await self.download_image()
-                    
-            return cache_path
-        
-        # Download the image
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     if response.status != 200:
-                        raise NetworkError(
-                            f"Failed to download image: HTTP {response.status}"
-                        )
+                        raise ValueError(f"Failed to download image: {response.status} {response.reason}")
                     
-                    # Download with progress tracking
-                    total_size = int(response.headers.get("content-length", 0))
-                    downloaded = 0
-                    
-                    with open(cache_path, "wb") as f:
-                        async for chunk in response.content.iter_chunked(8192):
+                    # Write the response content to file
+                    with open(output_path, 'wb') as f:
+                        while True:
+                            chunk = await response.content.read(1024 * 1024)  # 1MB chunks
+                            if not chunk:
+                                break
                             f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # Log progress every 10%
-                            if total_size > 0:
-                                progress = downloaded / total_size * 100
-                                if progress % 10 < 0.1:  # Log at ~0%, ~10%, ~20%, etc.
-                                    self.logger.info(
-                                        f"Download progress: {progress:.1f}% "
-                                        f"({downloaded/(1024*1024):.1f} MB / "
-                                        f"{total_size/(1024*1024):.1f} MB)"
-                                    )
             
-            self.logger.info(f"Download complete: {cache_path}")
-            
-            # Verify checksum if provided
-            if base_image_config.get("checksum"):
-                if await self._verify_checksum(cache_path, base_image_config["checksum"]):
-                    self.logger.info("Checksum verification passed")
-                else:
-                    self.logger.warning("Checksum verification failed, redownloading")
-                    cache_path.unlink()
-                    return await self.download_image()
-            
-            return cache_path
+            return output_path
             
         except Exception as e:
-            # Remove partial download if it exists
-            if cache_path.exists():
-                cache_path.unlink()
-            
-            raise NetworkError(f"Image download failed: {str(e)}")
+            if output_path.exists():
+                output_path.unlink()  # Remove partial download on error
+            raise ValueError(f"Image download failed: {str(e)}")
     
-    async def _verify_checksum(self, file_path: Path, expected_checksum: str) -> bool:
-        """
-        Verify the checksum of a file.
+    async def _extract_image(self, source_path: Path, target_path: Path) -> Path:
+        """Extract a compressed image."""
+        # Ensure target directory exists
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         
-        Args:
-            file_path: Path to the file
-            expected_checksum: Expected checksum
+        if source_path.suffix == ".xz":
+            # Use xz to decompress
+            process = await asyncio.create_subprocess_exec(
+                'xz', '--decompress', '--keep', '--stdout', str(source_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
             
-        Returns:
-            bool: True if checksum matches, False otherwise
-        """
-        self.logger.info(f"Verifying checksum of {file_path}")
-        
-        # Determine hash algorithm from checksum length
-        if len(expected_checksum) == 32:
-            hasher = hashlib.md5()
-        elif len(expected_checksum) == 40:
-            hasher = hashlib.sha1()
-        elif len(expected_checksum) == 64:
-            hasher = hashlib.sha256()
+            # Write output to file
+            with open(target_path, 'wb') as f:
+                while True:
+                    chunk = await process.stdout.read(1024 * 1024)  # 1MB chunks
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            
+            stderr = await process.stderr.read()
+            await process.wait()
+            
+            if process.returncode != 0:
+                raise RuntimeError(f"Failed to extract image: {stderr.decode()}")
+            
+            return target_path
         else:
-            hasher = hashlib.sha256()
+            # Just copy the file if it's not compressed
+            shutil.copy2(source_path, target_path)
+            return target_path
+    
+    async def _verify_checksum(self, file_path: Path, expected_checksum: str, checksum_type: str = "sha256") -> bool:
+        """Verify file checksum."""
+        hash_obj = None
         
-        # Calculate hash in chunks to avoid loading entire file into memory
-        buffer_size = 65536  # 64KB chunks
+        if checksum_type == "sha256":
+            hash_obj = hashlib.sha256()
+        elif checksum_type == "md5":
+            hash_obj = hashlib.md5()
+        else:
+            raise ValueError(f"Unsupported checksum type: {checksum_type}")
         
-        with open(file_path, "rb") as f:
+        with open(file_path, 'rb') as f:
             while True:
-                data = f.read(buffer_size)
+                data = f.read(65536)  # 64K chunks
                 if not data:
                     break
-                hasher.update(data)
+                hash_obj.update(data)
         
-        actual_checksum = hasher.hexdigest()
-        
-        return actual_checksum.lower() == expected_checksum.lower()
+        calculated_checksum = hash_obj.hexdigest()
+        return calculated_checksum.lower() == expected_checksum.lower()
     
     async def extract_image(self, image_path: Path) -> Path:
         """
@@ -371,27 +398,61 @@ class ImageBuilder:
             raise DiskOperationError(f"Failed to mount image: {str(e)}")
     
     async def unmount_image(self) -> None:
-        """
-        Unmount a previously mounted disk image.
-        
-        Raises:
-            DiskOperationError: If unmounting fails
-        """
+        """Unmount any mounted partitions and detach loop devices."""
         self.logger.info("Unmounting image")
         
-        # Unmount partitions
-        if self.root_mount:
-            await self._unmount_partition(self.root_mount)
-            self.root_mount = None
+        # Check if there are mount points in the build state
+        if hasattr(self, 'build_state'):
+            # Unmount root first (must be in reverse order of mounting)
+            if "root_mount" in self.build_state:
+                root_mount = self.build_state["root_mount"]
+                self.logger.debug(f"Unmounting root partition: {root_mount}")
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        'umount', str(root_mount),
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    _, stderr = await process.communicate()
+                    if process.returncode != 0:
+                        self.logger.warning(f"Failed to unmount root partition: {stderr.decode()}")
+                except Exception as e:
+                    self.logger.warning(f"Error unmounting root partition: {str(e)}")
+            
+            # Then unmount boot
+            if "boot_mount" in self.build_state:
+                boot_mount = self.build_state["boot_mount"]
+                self.logger.debug(f"Unmounting boot partition: {boot_mount}")
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        'umount', str(boot_mount),
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    _, stderr = await process.communicate()
+                    if process.returncode != 0:
+                        self.logger.warning(f"Failed to unmount boot partition: {stderr.decode()}")
+                except Exception as e:
+                    self.logger.warning(f"Error unmounting boot partition: {str(e)}")
+            
+            # Finally detach any loop devices
+            if "loop_device" in self.build_state:
+                loop_device = self.build_state["loop_device"]
+                self.logger.debug(f"Detaching loop device: {loop_device}")
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        'losetup', '--detach', loop_device,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    _, stderr = await process.communicate()
+                    if process.returncode != 0:
+                        self.logger.warning(f"Failed to detach loop device: {stderr.decode()}")
+                except Exception as e:
+                    self.logger.warning(f"Error detaching loop device: {str(e)}")
         
-        if self.boot_mount:
-            await self._unmount_partition(self.boot_mount)
-            self.boot_mount = None
-        
-        # Detach loop device
-        if self.loop_device:
-            await self._detach_loop_device(self.loop_device)
-            self.loop_device = None
+        # Sync filesystem to ensure all changes are written
+        await asyncio.create_subprocess_exec('sync')
     
     async def _unmount_partition(self, mount_point: Path) -> None:
         """

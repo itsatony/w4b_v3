@@ -14,6 +14,7 @@ import os
 import sys
 import tempfile
 import uuid
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
@@ -164,15 +165,117 @@ class ImageGenerator:
             self.logger.exception(f"Error during image generation: {str(e)}")
             return False
     
-    async def cleanup(self) -> None:
-        """
-        Clean up resources after image generation.
-        """
-        # In debug mode, keep the working directory
-        if not self.parsed_args.debug and self.work_dir and self.work_dir.exists():
-            import shutil
-            self.logger.info(f"Cleaning up working directory: {self.work_dir}")
-            shutil.rmtree(self.work_dir)
+    async def cleanup(self):
+        """Clean up temporary resources."""
+        self.logger.info(f"Cleaning up working directory: {self.work_dir}")
+        
+        # Ensure image is unmounted
+        if hasattr(self, 'image_builder'):
+            await self.image_builder.unmount_image()
+        
+        # Additional unmount check - force unmount if needed
+        boot_mount = self.work_dir / "boot"
+        root_mount = self.work_dir / "rootfs"
+        
+        if boot_mount.exists() or root_mount.exists():
+            self.logger.info("Ensuring all partitions are unmounted")
+            await self._force_unmount(boot_mount)
+            await self._force_unmount(root_mount)
+            
+            # Wait a moment to ensure file system operations complete
+            time.sleep(1)
+        
+        # Cleanup loop devices
+        try:
+            result = await asyncio.create_subprocess_exec(
+                'losetup', '-a',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await result.communicate()
+            
+            for line in stdout.decode().splitlines():
+                if str(self.work_dir) in line:
+                    device = line.split(':', 1)[0]
+                    self.logger.info(f"Detaching loop device: {device}")
+                    await asyncio.create_subprocess_exec('losetup', '-d', device)
+        except Exception as e:
+            self.logger.warning(f"Error cleaning up loop devices: {str(e)}")
+        
+        # Try to remove directory, handling busy errors
+        retries = 3
+        while retries > 0:
+            try:
+                # First try removing directory contents one by one
+                for item in os.listdir(self.work_dir):
+                    item_path = os.path.join(self.work_dir, item)
+                    if os.path.ismount(item_path):
+                        # Try umount again if still mounted
+                        await self._force_unmount(Path(item_path))
+                        continue
+                    
+                    try:
+                        if os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                        else:
+                            os.unlink(item_path)
+                    except Exception as e:
+                        self.logger.warning(f"Unable to remove {item_path}: {str(e)}")
+                
+                # Then try to remove the directory itself
+                shutil.rmtree(self.work_dir)
+                break
+            except Exception as e:
+                self.logger.warning(f"Error removing working directory: {str(e)}")
+                retries -= 1
+                if retries > 0:
+                    self.logger.info("Retrying directory cleanup...")
+                    time.sleep(2)  # Wait before retry
+                else:
+                    self.logger.warning(f"Unable to completely remove {self.work_dir}. Manual cleanup may be needed.")
+
+    async def _force_unmount(self, mount_point: Path):
+        """Force unmount a directory."""
+        if not mount_point.exists():
+            return
+        
+        try:
+            # Check if it's mounted
+            result = await asyncio.create_subprocess_exec(
+                'mount',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await result.communicate()
+            
+            if str(mount_point) not in stdout.decode():
+                return  # Not mounted, no need to unmount
+            
+            # Try normal unmount first
+            result = await asyncio.create_subprocess_exec(
+                'umount', str(mount_point),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await result.communicate()
+            
+            if result.returncode != 0:
+                # If failed, try force unmount
+                self.logger.warning(f"Normal unmount failed: {stderr.decode()}. Trying force unmount...")
+                await asyncio.create_subprocess_exec(
+                    'umount', '-f', str(mount_point),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # As a last resort, try lazy unmount
+                await asyncio.create_subprocess_exec(
+                    'umount', '-l', str(mount_point),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+        except Exception as e:
+            self.logger.warning(f"Error during unmount operation: {str(e)}")
 
     async def run(self) -> int:
         """

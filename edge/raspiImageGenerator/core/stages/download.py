@@ -1,70 +1,68 @@
 #!/usr/bin/env python3
 """
-Download stage for the W4B Raspberry Pi Image Generator.
-
-This module implements the first stage of the build pipeline, responsible
-for downloading and preparing the base Raspberry Pi OS image.
+Download stage for Raspberry Pi image generator.
 """
 
-import asyncio
 import os
+import sys
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 from core.stages.base import BuildStage
-from utils.error_handling import NetworkError, ImageBuildError
-
 
 class DownloadStage(BuildStage):
     """
     Build stage for downloading the base Raspberry Pi OS image.
-    
-    This stage is responsible for downloading the base image, verifying its
-    checksum, and extracting it for further processing.
-    
-    Attributes:
-        name (str): Name of the stage
-        state (Dict[str, Any]): Shared pipeline state
-        logger (logging.Logger): Logger instance
-        circuit_breaker (CircuitBreaker): Circuit breaker for fault tolerance
     """
     
     async def execute(self) -> bool:
-        """
-        Execute the download stage.
-        
-        Returns:
-            bool: True if download succeeded, False otherwise
-        """
         try:
-            # Get image builder from state
-            image_builder = self.state["image_builder"]
-            
-            # Get configuration for this stage
-            config = self.get_config()
-            
-            # Download the base image
+            self.logger.info("Starting stage: DownloadStage")
             self.logger.info("Downloading base Raspberry Pi OS image")
-            compressed_image_path = await image_builder.download_image()
             
-            # Extract the image
-            self.logger.info("Extracting image")
-            image_path = await image_builder.extract_image(compressed_image_path)
+            base_image_config = self.state["config"]["base_image"]
+            version = base_image_config["version"]
+            url_template = base_image_config["url_template"]
             
-            # Update state with image path
-            self.state["image_path"] = image_path
-            self.logger.info(f"Base image ready at: {image_path}")
+            # Construct the URL
+            url = url_template
+            if "{version}" in url_template:
+                url = url_template.format(version=version)
+                
+            self.logger.info(f"Image URL: {url}")
             
-            return True
+            # Make sure we're working with the correct builder
+            builder = self.state["image_builder"]
             
-        except NetworkError as e:
-            self.logger.error(f"Network error during download: {str(e)}")
-            return False
+            # Generate cache path
+            cache_path = builder.generate_cache_path(version)
             
-        except ImageBuildError as e:
-            self.logger.error(f"Image build error: {str(e)}")
-            return False
+            # Ensure the cache directory exists
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             
+            self.logger.info(f"Cache path: {cache_path}")
+            
+            # Check if image already exists in cache
+            if cache_path.exists():
+                self.logger.info(f"Image already exists in cache: {cache_path}")
+                # Store the image path in the state dictionary under both keys for compatibility
+                self.state["base_image_path"] = cache_path
+                self.state["image_path"] = cache_path
+                return True
+            
+            # Download the image
+            try:
+                downloaded_path = await builder.download_image(url, cache_path)
+                # Store the image path in the state dictionary under both keys for compatibility
+                self.state["base_image_path"] = downloaded_path
+                self.state["image_path"] = downloaded_path
+                self.logger.info(f"Downloaded image to: {downloaded_path}")
+                return True
+            except Exception as e:
+                self.logger.error(f"Network error during download: {str(e)}")
+                return False
+                
         except Exception as e:
-            self.logger.exception(f"Unexpected error in download stage: {str(e)}")
+            self.logger.error(f"Error in download stage: {str(e)}")
             return False

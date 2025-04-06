@@ -1,218 +1,153 @@
 #!/usr/bin/env python3
 """
-Software installation stage for the W4B Raspberry Pi Image Generator.
-
-This module implements the software installation stage of the build pipeline,
-responsible for installing required packages and dependencies.
+Software installation stage for Raspberry Pi image generator.
 """
 
-import asyncio
 import os
+import sys
+import asyncio
 import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from core.stages.base import BuildStage
-from utils.error_handling import ImageBuildError
-
 
 class SoftwareInstallStage(BuildStage):
     """
-    Build stage for installing required software.
-    
-    This stage is responsible for installing all required software packages
-    and dependencies on the target image.
-    
-    Attributes:
-        name (str): Name of the stage
-        state (Dict[str, Any]): Shared pipeline state
-        logger (logging.Logger): Logger instance
-        circuit_breaker (CircuitBreaker): Circuit breaker for fault tolerance
+    Build stage for installing software packages on the image.
     """
     
     async def execute(self) -> bool:
-        """
-        Execute the software installation stage.
-        
-        Returns:
-            bool: True if installation succeeded, False otherwise
-        """
         try:
-            # Get paths from state
+            self.logger.info("Starting stage: SoftwareInstallStage")
+            
+            # Check for required state values
+            required_keys = ["image_path", "boot_mount", "root_mount"]
+            for key in required_keys:
+                if key not in self.state:
+                    raise KeyError(f"Missing required state value: {key}")
+            
+            # Get mount points from state
             boot_mount = self.state["boot_mount"]
             root_mount = self.state["root_mount"]
             
-            # Install system packages
-            await self._install_system_packages(root_mount)
+            # Get software packages to install
+            software_config = self.state["config"].get("software", {})
+            system_packages = software_config.get("packages", [])
+            python_packages = software_config.get("python_packages", [])
             
-            # Install Python packages
-            await self._install_python_packages(root_mount)
+            # Add repositories and install packages
+            await self._configure_apt_sources(root_mount)
+            await self._install_packages(root_mount, system_packages)
+            await self._install_python_packages(root_mount, python_packages)
             
-            # Configure package sources
-            await self._configure_package_sources(root_mount)
+            # Copy additional files
+            await self._copy_additional_files(boot_mount, root_mount)
             
-            self.logger.info("Software installation completed successfully")
             return True
             
         except Exception as e:
-            self.logger.exception(f"Software installation failed: {str(e)}")
+            self.logger.error(f"Software installation failed: {str(e)}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
             return False
     
-    async def _install_system_packages(self, root_mount: Path) -> None:
-        """
-        Configure required system packages.
+    async def _configure_apt_sources(self, root_mount: Path) -> None:
+        """Configure APT sources and update packages."""
+        self.logger.info("Configuring APT sources")
         
-        This method adds package names to the firstboot script for installation
-        during the first boot.
+        # Update package lists using chroot
+        update_cmd = [
+            'chroot', str(root_mount),
+            'apt-get', 'update', '-y'
+        ]
         
-        Args:
-            root_mount: Path to the root file system
-        """
-        # Get package list
-        packages = self.state["config"]["software"]["packages"]
+        process = await asyncio.create_subprocess_exec(
+            *update_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            self.logger.warning(f"APT update failed: {stderr.decode()}")
+            self.logger.debug(f"APT update stdout: {stdout.decode()}")
+    
+    async def _install_packages(self, root_mount: Path, packages: List[str]) -> None:
+        """Install system packages using APT."""
         if not packages:
-            self.logger.info("No system packages specified for installation")
+            self.logger.info("No system packages to install")
             return
         
-        self.logger.info(f"Adding {len(packages)} system packages for installation")
+        self.logger.info(f"Installing {len(packages)} system packages")
         
-        # Generate package list string
-        package_list = " ".join(packages)
+        # Prepare for install by copying qemu-arm-static
+        qemu_src = "/usr/bin/qemu-arm-static"
+        qemu_dest = root_mount / "usr/bin/qemu-arm-static"
         
-        # Add to firstboot script
-        firstboot_path = Path(self.state["boot_mount"]) / "firstboot.sh"
+        if os.path.exists(qemu_src) and not qemu_dest.exists():
+            shutil.copy2(qemu_src, qemu_dest)
         
-        with open(firstboot_path, "r") as f:
-            content = f.readlines()
+        # Install packages using chroot
+        install_cmd = [
+            'chroot', str(root_mount),
+            'apt-get', 'install', '-y'
+        ] + packages
         
-        # Find position to insert package installation (before "Mark setup as complete")
-        insert_pos = 0
-        for i, line in enumerate(content):
-            if "Mark setup as complete" in line:
-                insert_pos = i
-                break
+        process = await asyncio.create_subprocess_exec(
+            *install_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
         
-        # Create package installation section
-        install_lines = [
-            "# Install required packages\n",
-            f"echo \"Installing system packages: {package_list}\"\n",
-            f"apt-get install -y {package_list}\n",
-            "\n"
-        ]
-        
-        # Insert installation lines
-        content = content[:insert_pos] + install_lines + content[insert_pos:]
-        
-        # Write back to file
-        with open(firstboot_path, "w") as f:
-            f.writelines(content)
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            self.logger.warning(f"Package installation failed: {stderr.decode()}")
+            self.logger.debug(f"Package installation stdout: {stdout.decode()}")
     
-    async def _install_python_packages(self, root_mount: Path) -> None:
-        """
-        Configure required Python packages.
-        
-        This method adds pip package installation to the firstboot script.
-        
-        Args:
-            root_mount: Path to the root file system
-        """
-        # Get Python package list
-        python_packages = self.state["config"]["software"].get("python_packages", [])
-        if not python_packages:
-            self.logger.info("No Python packages specified for installation")
+    async def _install_python_packages(self, root_mount: Path, packages: List[str]) -> None:
+        """Install Python packages using pip."""
+        if not packages:
+            self.logger.info("No Python packages to install")
             return
         
-        # Get requirements file if specified
-        requirements_file = self.state["config"]["software"].get("python_requirements", {}).get("file")
+        self.logger.info(f"Installing {len(packages)} Python packages")
         
-        self.logger.info(f"Adding Python packages for installation: {len(python_packages)} packages")
+        # Install packages using chroot and pip
+        install_cmd = [
+            'chroot', str(root_mount),
+            'pip3', 'install'
+        ] + packages
         
-        # Add to firstboot script
-        firstboot_path = Path(self.state["boot_mount"]) / "firstboot.sh"
+        process = await asyncio.create_subprocess_exec(
+            *install_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
         
-        with open(firstboot_path, "r") as f:
-            content = f.readlines()
-        
-        # Find position to insert package installation (before "Mark setup as complete")
-        insert_pos = 0
-        for i, line in enumerate(content):
-            if "Mark setup as complete" in line:
-                insert_pos = i
-                break
-        
-        # Create pip installation section
-        install_lines = [
-            "# Install Python packages\n",
-            "echo \"Installing Python packages\"\n"
-        ]
-        
-        # Add pip installation if needed
-        install_lines.append("apt-get install -y python3-pip\n")
-        
-        # Add individual packages
-        if python_packages:
-            package_list = " ".join(python_packages)
-            install_lines.append(f"pip3 install {package_list}\n")
-        
-        # Add requirements file if specified
-        if requirements_file:
-            # Copy requirements file to boot
-            src_requirements = Path(requirements_file)
-            if src_requirements.exists():
-                dst_requirements = Path(self.state["boot_mount"]) / "requirements.txt"
-                shutil.copy(src_requirements, dst_requirements)
-                install_lines.append("pip3 install -r /boot/requirements.txt\n")
-                install_lines.append("rm /boot/requirements.txt\n")
-        
-        install_lines.append("\n")
-        
-        # Insert installation lines
-        content = content[:insert_pos] + install_lines + content[insert_pos:]
-        
-        # Write back to file
-        with open(firstboot_path, "w") as f:
-            f.writelines(content)
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            self.logger.warning(f"Python package installation failed: {stderr.decode()}")
+            self.logger.debug(f"Python package installation stdout: {stdout.decode()}")
     
-    async def _configure_package_sources(self, root_mount: Path) -> None:
-        """
-        Configure package sources.
+    async def _copy_additional_files(self, boot_mount: Path, root_mount: Path) -> None:
+        """Copy additional files to the image."""
+        self.logger.info("Copying additional files to the image")
         
-        Args:
-            root_mount: Path to the root file system
-        """
-        # Example: add TimescaleDB repository if we need it
-        if "timescaledb" in " ".join(self.state["config"]["software"].get("packages", [])):
-            self.logger.info("Adding TimescaleDB package repository")
+        # Create required directories
+        config_dir = root_mount / "opt/w4b/config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy sensor manager files if available
+        src_dir = Path(__file__).parent.parent.parent / "files/sensorManager"
+        if src_dir.exists():
+            dest_dir = root_mount / "opt/w4b/sensorManager"
+            dest_dir.mkdir(parents=True, exist_ok=True)
             
-            # Create apt sources list file for TimescaleDB
-            sources_dir = root_mount / "etc/apt/sources.list.d"
-            sources_dir.mkdir(exist_ok=True)
-            
-            with open(sources_dir / "timescaledb.list", "w") as f:
-                f.write("deb https://packagecloud.io/timescale/timescaledb/debian/ bullseye main\n")
-            
-            # Add repository key in firstboot script
-            firstboot_path = Path(self.state["boot_mount"]) / "firstboot.sh"
-            
-            with open(firstboot_path, "r") as f:
-                content = f.readlines()
-            
-            # Find position to insert apt update (beginning of the script, after first few lines)
-            insert_pos = 3  # After shebang, set -e, and first echo
-            
-            # Create repo setup section
-            repo_lines = [
-                "# Add TimescaleDB repository\n",
-                "echo \"Adding TimescaleDB repository\"\n",
-                "apt-get install -y gnupg2\n",
-                "apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 1005589CB00BBEA3\n",
-                "apt-get update\n",
-                "\n"
-            ]
-            
-            # Insert repository lines
-            content = content[:insert_pos] + repo_lines + content[insert_pos:]
-            
-            # Write back to file
-            with open(firstboot_path, "w") as f:
-                f.writelines(content)
+            # Copy files
+            for item in src_dir.glob("**/*"):
+                if item.is_file():
+                    rel_path = item.relative_to(src_dir)
+                    dest_path = dest_dir / rel_path
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest_path)
