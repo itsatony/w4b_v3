@@ -92,7 +92,8 @@ class BuildStage(abc.ABC):
         Returns:
             bool: True if execution succeeded, False otherwise
         """
-        pass
+        # Implement in derived classes
+        return True
     
     async def post_run(self, success: bool) -> None:
         """

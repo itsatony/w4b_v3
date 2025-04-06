@@ -85,10 +85,10 @@ class ValidationStage(BuildStage):
             boot_mount = self.state["boot_mount"]
             
             # Debug output to show actual paths
-            self.logger.debug(f"Root mount point: {root_mount}")
-            self.logger.debug(f"Boot mount point: {boot_mount}")
+            self.logger.info(f"Validation using root_mount: {root_mount}")
+            self.logger.info(f"Validation using boot_mount: {boot_mount}")
             
-            # Define essential directories to check
+            # First check if directories exist on the filesystem
             essential_dirs = [
                 root_mount / "etc",
                 root_mount / "etc/systemd",
@@ -100,17 +100,27 @@ class ValidationStage(BuildStage):
                 boot_mount
             ]
             
+            # Debug each directory
+            for directory in essential_dirs:
+                self.logger.debug(f"Checking directory: {directory} (exists: {directory.exists()})")
+            
             missing_dirs = []
             for directory in essential_dirs:
                 if not directory.is_dir():
+                    # Try to list the parent directory to debug
+                    parent = directory.parent
+                    if parent.exists():
+                        self.logger.debug(f"Parent dir {parent} contents: {[str(x) for x in parent.iterdir()]}")
                     missing_dirs.append(str(directory))
-                    self.logger.debug(f"Missing directory: {directory}")
             
             if missing_dirs:
                 return False, f"Essential directories not found: {', '.join(missing_dirs)}"
             
             return True, "Structure validation passed"
         except Exception as e:
+            self.logger.error(f"Exception during structure validation: {str(e)}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
             return False, f"Structure validation error: {str(e)}"
     
     async def _validate_files(self) -> Tuple[bool, str]:

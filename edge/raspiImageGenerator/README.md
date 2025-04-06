@@ -169,6 +169,31 @@ pytest tests/test_image_builder.py
 sphinx-build -b html docs/source docs/build
 ```
 
+## Requirements for Cross-Architecture Support
+
+The Raspberry Pi Image Generator needs to work with ARM-based files on potentially x86 host systems. For this to work properly, you need to have QEMU user-mode emulation set up on your system:
+
+```bash
+# Install qemu and binfmt support
+sudo apt-get update
+sudo apt-get install -y qemu-user-static binfmt-support
+
+# Register binfmt handlers
+sudo update-binfmts --enable qemu-arm
+```
+
+Alternatively, you can use the included setup script:
+
+```bash
+sudo python3 utils/setup_qemu.py
+```
+
+### Common Issues
+
+1. **Exec format error**: If you see "Exec format error" in the logs, it means QEMU is not properly set up for ARM emulation on your system. Run the setup script above.
+
+2. **Package installation failures**: These are now handled by creating scripts that run on the Raspberry Pi during first boot, rather than trying to execute ARM binaries during image creation.
+
 ## Troubleshooting
 
 Common issues and solutions:

@@ -100,6 +100,43 @@ class BuildPipeline:
             CompressionStage(self.state)
         ]
     
+    async def _execute_stage(self, stage_index: int) -> bool:
+        """
+        Execute a stage by index.
+        
+        Args:
+            stage_index: Index of the stage to execute
+            
+        Returns:
+            bool: True if the stage completed successfully, False otherwise
+        """
+        if stage_index >= len(self.stages):
+            return False
+        
+        stage = self.stages[stage_index]
+        stage_name = stage.__class__.__name__
+        
+        # Log stage start only once here
+        self.logger.info(f"Starting stage {stage_index+1}/{len(self.stages)}: {stage_name}")
+        
+        start_time = time.time()
+        try:
+            result = await stage.execute()
+            elapsed = time.time() - start_time
+            
+            if result:
+                self.logger.info(f"Stage {stage_name} completed in {elapsed:.1f}s")
+                self.logger.info(f"Stage {stage_name} completed successfully")
+            else:
+                self.logger.error(f"Stage {stage_name} failed")
+            
+            return result
+        except Exception as e:
+            self.logger.error(f"Error executing stage {stage_name}: {str(e)}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
+            return False
+    
     async def run(self) -> bool:
         """
         Execute the build pipeline.
@@ -112,22 +149,12 @@ class BuildPipeline:
         
         try:
             # Run each stage in sequence
-            for i, stage in enumerate(self.stages):
+            for i in range(len(self.stages)):
                 self.current_stage = i
-                stage_name = stage.__class__.__name__
+                success = await self._execute_stage(i)
                 
-                self.logger.info(f"Starting stage {i+1}/{len(self.stages)}: {stage_name}")
-                
-                stage_start_time = time.time()
-                success = await stage.run()
-                stage_duration = time.time() - stage_start_time
-                
-                if success:
-                    self.logger.info(
-                        f"Stage {stage_name} completed in {stage_duration:.1f}s"
-                    )
-                else:
-                    self.logger.error(f"Stage {stage_name} failed, aborting pipeline")
+                if not success:
+                    self.logger.error("Pipeline aborted due to stage failure")
                     return False
             
             self.end_time = time.time()

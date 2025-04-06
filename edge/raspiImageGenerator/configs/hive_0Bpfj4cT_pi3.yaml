@@ -85,9 +85,11 @@ services:
 # Software packages to install
 software:
   packages:
-    - postgresql-13
-    - postgresql-13-timescaledb-2
+    - postgresql-14
+    - postgresql-client-14
+    - timescaledb-2-postgresql-14
     - wireguard
+    - python3.10
     - python3-pip
     - python3-venv
     - prometheus-node-exporter
@@ -113,3 +115,9 @@ output:
   directory: "/tmp/generated_images"
   naming_template: "w4b_pi3_{hive_id}_{timestamp}"
   compress: true
+
+# Cache configuration
+cache:
+  directory: "/tmp/w4b_image_cache"
+  max_age_days: 30
+  max_size_gb: 20
