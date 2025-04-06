@@ -30,19 +30,82 @@ We use GoDoc style comments for Go code and reST PEP 257 style comments for Pyth
 
 NEVER use var or const names that could conflict with libraries or commands. Always use unique names where possible.
 
+### Python Code
+
+We use the following conventions for Python code:
+
+- Use PEP 8 style guide for Python code.
+- Use type hints for function arguments and return types.
+- Use docstrings for function and class documentation.
+- Use f-strings for string formatting.
+- Use `black` for code formatting.
+- Use `mypy` for type checking.
+- Use `pytest` for unit testing.
+- Use `pylint` for code linting.
+- Use `bandit` for security linting.
+- Use `flake8` for style guide enforcement.
+- Use `isort` for import sorting.
+- Write tests for all new features and bugfixes.
+- Use best practices for error handling and edge case coverage.
+- For timeseries data, use the `pandas` library for data manipulation and analysis.
+- Use `numpy` for numerical operations.
+- Use `scipy` for scientific computing and advanced mathematical functions.
+
+We use poetry for package management and dependency management. We use a `pyproject.toml` file for configuration.
+We have not fully migrated to poetry yet, but we will do so in the future. parts of the python code still use venv and `requirements.txt` for the time being. New subprojects should use poetry and pyproject.toml.
+
+### Markdown
+
+We use the following conventions for markdown files:
+
+- No colons at the end of headings.
+- Use a single blank line between headings and paragraphs.
+- Use a single blank line between paragraphs.
+- Use a single blank line between code blocks and paragraphs.
+- Use a single blank line between lists and paragraphs.
+
 ## Git
 
 we have a "monorepo" style project. The git url for the project is: [git-repo](https://github.com/itsatony/w4b_v3.git) .
 We use the main branch as the main development branch. We use feature branches for new features and bugfix branches for bugfixes. We use tags for releases.
 
-The go-lang server api is in
-{repo-root}/server/api
+- The go-lang server api is in {repo-root}/server/api
+- The python edge device code is in {repo-root}/edge . This part includes:
+  - edge raspi image generator code in {repo-root}/edge/raspiImageGenerator
+  - edge sensor manager code in {repo-roo}/edge/sensorManager
+  - the edge monitoring code in {repo-root}/edge/spokeMonitor
 
-The python edge device code is in
-{repo-root}/edge
+The python hive config manager code is in
+{repo-root}/hive_config_manager
 
 The VPN configuration is in
 {repo-root}/vpn
+
+## Progress Tracking
+
+We track our progress using TODO task files for each subproject. The TODO files are located in the respective subproject directories. Each TODO file contains a list of tasks and their progress status as well as the subproject's ADRs.
+
+We use ADRs to document architectural decisions and their rationale. The ADRs are a second section in the TODO file of each subproject. We only add accepted ADRs, so no status required. Each ADR in the file is brief and clear. It contains a unique title, context, decision, and consequences.
+
+Example:
+
+```markdown
+# Tasks and Progress tracking for the w4b sensor management system
+## Tasks
+- [x] DONE: Define a plan for the sensor data collector
+- [ ] TODO: Implement the sensor data collector
+  - [ ] IN-PROGRESS: Implement the sensor data collector for temperature sensors
+- [ ] TODO: Implement the sensor data collector for humidity sensors
+...
+
+## Architecture Decision Records (ADRs)
+
+### ADR: Use TimescaleDB for time-series data storage
+
+- Context: We need a database for storing time-series data from the sensors.
+- Decision: We will use TimescaleDB as our time-series database.
+- Consequences: We will need to set up TimescaleDB on the server and configure it for use with our API service.
+```
 
 ## Server Architecture
 
@@ -221,7 +284,7 @@ graph TB
 
 - **Hardware**: Raspberry Pi (v3/v5)
 - **Local Storage**: TimescaleDB instance
-- **Data Collection**: Python-based sensor collector
+- **Data Collection**: Python-based sensor manager and data collector
 - **Monitoring**: Node exporter for system metrics
 - **Security**: WireGuard VPN client, firewall rules
 
@@ -518,7 +581,7 @@ we will use redis (github.com/redis/go-redis/v9) for caching and rate limiting.
 we use gorilla/mux as a router. we use gorilla/handlers for CORS and other middleware. we use gorilla/schema for query and form parsing. we use gorilla/sessions for session management IF compatible with keycloak. we use gorilla/csrf for csrf protection IF compatible with keycloak.
 we are both an api that will receive sensor data from spokes/clients via api-key (we have to get that managed via keycloak ideally) AND, our api also needs to be able to serve hive-data and sensor-data via web-auth (keycloak). Ideally, we configure keycloak in a way that allows our api to verify auth of both email+pw and then sessions AND edge-devices (via keycloak service accounts).
 
-we will use the struccy package for struct handling and field access control and filtering:
+### Struccy package for struct handling and field access control and filtering
 
 ````markdown
 # struccy
@@ -560,157 +623,23 @@ type Profile struct {
 
 ## Struct Manipulation Functions
 
-### UpdateStructFields
+The `struccy` package offers several functions for manipulating struct fields, with a focus on role-based access control using `readxs` and `writexs` tags. These functions allow for safe and controlled modification, filtering, and conversion of struct data.
 
-Updates fields of a struct based on non-zero values from another struct, applying role-based field access.
+### Available Functions
 
-**Parameters**:
-
-- `entity`: Target struct to update.
-- `incomingEntity`: Struct containing update values.
-- `roles`: Roles applicable to the operation.
-- `ignoreZeroValues`: Flag to ignore zero values during update.
-- `ignoreEmptyStrings`: Flag to ignore empty strings during update.
-
-**Returns**:
-
-- Updated fields map.
-- Error if update fails due to access restrictions or type mismatches.
-
-### SetField
-
-Sets a value to a struct field with role-based access and type conversion.
-
-**Parameters**:
-
-- `entity`: Struct to update.
-- `fieldName`: Field name to update.
-- `value`: Value to set.
-- `skipZeroVals`: Skip zero values during update.
-- `roles`: User roles for access validation.
-
-**Returns**:
-
-- Error if the field can't be set due to access restrictions or type incompatibilities.
-
-### IsAllowedToSetField
-
-Checks if a field can be set based on the user's roles.
-
-**Parameters**:
-
-- `entity`: Struct containing the field.
-- `fieldName`: Field name to check.
-- `roles`: Roles to evaluate.
-
-**Returns**:
-
-- `true` if the field can be set, `false` otherwise.
-
-## Usage Examples
-
-### Merging Structs with Field Access
-
-```go
-adminUser := User{
-    Email: "admin@example.com",
-    Role:  "admin",
-}
-
-incomingUpdates := map[string]any{
-    "Email": "newadmin@example.com",
-    "Role":  "user",  // Assuming 'Role' field is protected and not writable by 'admin'
-}
-
-updatedUser, err := MergeMapStringFieldsToStruct(&adminUser, incomingUpdates, []string{"admin"})
-if err != nil {
-    log.Println("Failed to merge:", err)
-}
-fmt.Printf("Updated User: %+v\n", updatedUser)
+- **UpdateStructFields**: Updates fields of a struct based on non-zero values from another struct, applying role-based field access.
+- **SetField**: Sets a value to a struct field with role-based access and type conversion.
+- **IsAllowedToSetField**: Checks if a field can be set based on the user's roles.
+- **GetFieldNames**: Returns a slice of field names for a given struct pointer.
+- **GetFieldNamesWithReadXS**: Returns a slice of field names with read access allowed based on provided roles.
+- **GetFieldNamesWithWriteXS**: Returns a slice of field names with write access allowed based on provided roles.
+- **StructToMapFieldsWithReadXS**: Converts a struct to a map, including only fields with read access allowed.
+- **StructToMapFieldsWithWriteXS**: Converts a struct to a map, including only fields with write access allowed.
+- **StructToJSONFieldsWithReadXS**: Converts a struct to a JSON string, including only fields with read access allowed.
+- **StructToJSONFieldsWithWriteXS**: Converts a struct to a JSON string, including only fields with write access allowed.
 ```
 
-### Filtering Structs to JSON with Role-based Access
-
-```go
-user := Profile{
-    Name:    "John Doe",
-    Email:   "john@example.com",
-    Address: "Secret Location",
-}
-
-jsonOutput, err := StructToJSONFieldsWithReadXS(&user, []string{"user"})
-if err != nil {
-    log.Println("Error generating JSON:", err)
-}
-fmt.Println("JSON Output:", jsonOutput)
-```
-
-## Struct to Map/JSON Conversion
-
-`struccy` provides functions to convert structs to maps or JSON strings, respecting `readxs` and `writexs` tags. This allows for dynamic data handling in applications that require role-based data visibility.
-
-### Convenience Functions
-
-The `struccy` package provides a set of convenience functions to work with struct fields and their read/write access rules (xsList). These functions allow you to retrieve field names, convert structs to maps, and convert structs to JSON strings based on specified access rules.
-
-### GetFieldNames
-
-The `GetFieldNames` function returns a slice of field names for the given struct pointer. It uses reflection to iterate over the fields of the struct and collect their names.
-
-```go
-func GetFieldNames(structPtr any) ([]string, error)
-```
-
-### GetFieldNamesWithReadXS
-
-The `GetFieldNamesWithReadXS` function returns a slice of field names for the given struct pointer, filtered by the specified read access rules (xsList). It uses reflection to iterate over the fields of the struct and collect the names of fields that have read access allowed based on the provided xsList.
-
-```go
-func GetFieldNamesWithReadXS(structPtr any, xsList []string) ([]string, error)
-```
-
-### GetFieldNamesWithWriteXS
-
-The `GetFieldNamesWithWriteXS` function returns a slice of field names for the given struct pointer, filtered by the specified write access rules (xsList). It uses reflection to iterate over the fields of the struct and collect the names of fields that have write access allowed based on the provided xsList.
-
-```go
-func GetFieldNamesWithWriteXS(structPtr any, xsList []string) ([]string, error)
-```
-
-### StructToMapFieldsWithReadXS
-
-The `StructToMapFieldsWithReadXS` function converts the specified struct pointer to a map, including only the fields with read access allowed based on the provided xsList. It uses reflection to iterate over the fields of the struct and collect the field names and values that have read access allowed.
-
-```go
-func StructToMapFieldsWithReadXS(structPtr any, xsList []string) (map[string]any, error)
-```
-
-### StructToMapFieldsWithWriteXS
-
-The `StructToMapFieldsWithWriteXS` function converts the specified struct pointer to a map, including only the fields with write access allowed based on the provided xsList. It uses reflection to iterate over the fields of the struct and collect the field names and values that have write access allowed.
-
-```go
-func StructToMapFieldsWithWriteXS(structPtr any, xsList []string) (map[string]any, error)
-```
-
-### StructToJSONFieldsWithReadXS
-
-The `StructToJSONFieldsWithReadXS` function converts the specified struct pointer to a JSON string, including only the fields with read access allowed based on the provided xsList. It uses reflection to iterate over the fields of the struct and collect the field names and values that have read access allowed, and then marshals the resulting map to a JSON string.
-
-```go
-func StructToJSONFieldsWithReadXS(structPtr any, xsList []string) (string, error)
-```
-
-### StructToJSONFieldsWithWriteXS
-
-The `StructToJSONFieldsWithWriteXS` function converts the specified struct pointer to a JSON string, including only the fields with write access allowed based on the provided xsList. It uses reflection to iterate over the fields of the struct and collect the field names and values that have write access allowed, and then marshals the resulting map to a JSON string.
-
-```go
-func StructToJSONFieldsWithWriteXS(structPtr any, xsList []string) (string, error)
-```
-
-These convenience functions provide additional flexibility and utility when working with structs and their fields based on read and write access rules. They can be used in scenarios where you need to retrieve field names, convert structs to maps, or convert structs to JSON strings while respecting the specified access rules.
-````
+## Sensor Data Management
 
 we will allow upload of images and sound files from the hives.
 we will store the images in a local folder and the sound files in a local folder.
@@ -868,11 +797,12 @@ type CalibrationPoint struct {
 }
 ```
 
-we will use openapi compatible endpoint documentation (swagger) and a fitting tool to generate the swagger documentation from our go code (documentation).
+we will use openapi compatible endpoint documentation (openAPI3) and a fitting tool to generate the documentation from our go code.
 
-we have to manage timescaledb retention policies and data retention and data reduction as follows:
 
 ## Revised Data Retention Scheme
+
+we have to manage timescaledb retention policies and data retention and data reduction as follows:
 
 | Time Period | Sensor Data Frequency | Image Frequency | Additional Data |
 |-------------|------------------------|------------------|-----------------|

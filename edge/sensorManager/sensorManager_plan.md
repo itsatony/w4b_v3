@@ -354,7 +354,7 @@ A phased approach to implementing the sensor manager system.
 
 Plan for migrating from the legacy system to the new sensor manager.
 
-### Key Migration Steps:
+### Key Migration Steps
 
 1. **Inventory Current Sensors**: Document all existing sensors and configurations
 2. **Map to New Framework**: Create mapping between old and new configurations
@@ -363,7 +363,7 @@ Plan for migrating from the legacy system to the new sensor manager.
 5. **Gradual Cutover**: Migrate one sensor type at a time
 6. **Fallback Plan**: Maintain ability to revert to old system if needed
 
-### Configuration Migration Tool:
+### Configuration Migration Tool
 
 Develop a tool to automatically convert old sensor configurations to the new YAML format, preserving calibration settings and other critical parameters.
 
@@ -371,7 +371,7 @@ Develop a tool to automatically convert old sensor configurations to the new YAM
 
 Potential future enhancements to the sensor manager system.
 
-### Planned Enhancements:
+### Planned Enhancements
 
 - **Machine Learning**: Implement on-device anomaly detection
 - **Edge Analytics**: Perform basic analysis on the edge device
