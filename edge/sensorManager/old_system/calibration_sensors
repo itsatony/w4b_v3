@@ -1,0 +1,18 @@
+from os import listdir
+from subprocess import run, PIPE
+from typing import Set
+
+
+class Sensors:
+    def get_i2c_sensors(self) -> str:
+        out = run(['i2cdetect', '-y', '1'], stdout=PIPE)
+        return out.stdout.decode('utf-8')
+
+    def get_temperature_sensors(self) -> Set[str]:
+        path = '/sys/bus/w1/devices'
+        sensors = set(filter(lambda x: x.startswith('28-'), listdir(path)))
+        return sensors
+
+    def get_temperature_sensor_value(self, s) -> float:
+        out = run(['cat', '/sys/bus/w1/devices/%s/w1_slave' % s], stdout=PIPE)
+        return float((out.stdout[-6:-1]).decode('utf-8')) / 1000

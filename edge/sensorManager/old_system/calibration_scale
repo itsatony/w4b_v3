@@ -1,0 +1,59 @@
+from time import sleep
+from typing import List
+
+from smbus2 import SMBus
+
+
+class Scale:
+    def __init__(self):
+        self.PATH = '/home/pi/balance.dat'
+
+    def read_scale_values(self, smbus: SMBus, times: int = 10) -> List[float]:
+        values = []
+        for _ in range(times):
+            smbus.write_byte(0x4, 63)
+            sleep(0.01)
+            data = smbus.read_i2c_block_data(0x4, 63, 16)
+            values.append(float("".join(map(chr, filter(lambda x: x < 255, data)))))
+            sleep(1)
+        return values
+
+    def write_scale_values(self, values_weight_avg: float, values_avg: float) -> None:
+        with open(self.PATH, 'w') as f:
+            f.write('Values Average: ' + str(values_avg))
+            f.write('\n')
+            f.write('Values Weight Average: ' + str(values_weight_avg))
+            f.flush()
+
+    def calibrate_scale_sensor(self, weight: float) -> (int, float):
+        values_avg = self.calibrate_scale_sensor_first(weight)
+        input('Weight is on the scale (y/n)?') == 'y'
+        return self.calibrate_scale_sensor_second(weight, values_avg)
+
+    def calibrate_scale_sensor_first(self, weight: float) -> float:
+        smbus = SMBus(0x1)
+        print('Reading empty scale values...')
+        values = self.read_scale_values(smbus)
+        values_avg = sum(values) / len(values)
+        print('Values:', values)
+        print('Average:', values_avg)
+        print('Put measured weight on the scale.')
+        return values_avg
+
+    def calibrate_scale_sensor_second(self, weight: float, values_avg: float) -> (int, float):
+        smbus = SMBus(0x1)
+        print('Reading new scale values...')
+        values_weight = self.read_scale_values(smbus)
+        values_weight_avg = sum(values_weight) / len(values_weight)
+        print('New values:', values_weight)
+        print('New average:', values_weight_avg)
+        print()
+        print('Offset:', values_weight_avg)
+        delta_y = values_weight_avg - values_avg
+        if delta_y == 0:
+            return int(values_weight_avg), 1.
+        factor = weight / delta_y
+        print('Factor:', factor)
+        smbus.close()
+        self.write_scale_values(values_weight_avg, values_avg)
+        return int(values_avg), factor

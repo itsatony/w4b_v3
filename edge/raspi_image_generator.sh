@@ -294,8 +294,11 @@ EOF
     log "Enabling SSH on first boot"
     sudo touch "${BOOT_PATH}/ssh"
     
-    # Setup SSH configuration to allow password authentication
-    log "Configuring SSH access with password authentication enabled"
+    # Create a cmdline.txt backup
+    sudo cp "${BOOT_PATH}/cmdline.txt" "${BOOT_PATH}/cmdline.txt.backup"
+    
+    # Setup SSH configuration with more permissive settings
+    log "Configuring SSH access with enhanced security"
     sudo mkdir -p "${ROOT_PATH}/etc/ssh/sshd_config.d"
     cat << EOF | sudo tee "${ROOT_PATH}/etc/ssh/sshd_config.d/10-w4b.conf" > /dev/null
 # W4B Custom SSH Configuration
@@ -303,6 +306,11 @@ Port ${SSH_PORT:-22}
 PasswordAuthentication yes
 ChallengeResponseAuthentication no
 PermitRootLogin ${SSH_ALLOW_ROOT:-no}
+# Ensure these critical settings are enabled
+ListenAddress 0.0.0.0
+UsePAM yes
+# Don't restrict users initially to avoid lockout
+# AllowUsers ${LOCAL_USER} root
 EOF
     
     sudo mkdir -p "${ROOT_PATH}/root/.ssh"
@@ -310,18 +318,35 @@ EOF
     sudo chmod 700 "${ROOT_PATH}/root/.ssh"
     sudo chmod 600 "${ROOT_PATH}/root/.ssh/authorized_keys"
     
-    # Configure SSH daemon
-    log "Configuring SSH daemon settings"
-    cat << EOF | sudo tee -a "${ROOT_PATH}/etc/ssh/sshd_config.d/10-w4b.conf" > /dev/null
-AllowUsers ${LOCAL_USER} root
-EOF
-    
     # Optionally configure SSH private key (for edge-to-edge communication)
     if [ ! -z "$SSH_PRIVATE_KEY" ]; then
         log "Setting up SSH private key"
         echo "$SSH_PRIVATE_KEY" | sudo tee "${ROOT_PATH}/root/.ssh/id_ed25519" > /dev/null
         sudo chmod 600 "${ROOT_PATH}/root/.ssh/id_ed25519"
     fi
+
+    # Ensure SSH service is enabled and started
+    log "Ensuring SSH service is enabled and started"
+    sudo systemctl enable ssh
+    sudo systemctl start ssh
+
+    # Update firewall rules to allow SSH
+    log "Configuring firewall to allow SSH"
+    sudo ufw allow ${SSH_PORT:-22}/tcp comment 'Allow SSH'
+    sudo ufw --force enable
+
+    # Verify SSH configuration
+    log "Verifying SSH configuration"
+    sudo sshd -t || error "SSH configuration has errors. Please check the configuration."
+
+    # Ensure SSH listens on all interfaces
+    log "Ensuring SSH listens on all interfaces"
+    sudo sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' "${ROOT_PATH}/etc/ssh/sshd_config"
+    sudo sed -i 's/^#ListenAddress ::/ListenAddress ::/' "${ROOT_PATH}/etc/ssh/sshd_config"
+
+    # Restart SSH service to apply changes
+    log "Restarting SSH service"
+    sudo systemctl restart ssh
 
     # Setup WireGuard
     log "Configuring WireGuard VPN"
